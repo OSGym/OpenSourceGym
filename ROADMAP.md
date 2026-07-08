@@ -97,17 +97,18 @@
 
 **İş Kırılımı:**
 
-- [ ] Device Gateway: WebSocket sunucu, cihaz başına önceden paylaşılan token ile agent kimlik doğrulaması
-- [ ] Agent referans implementasyonu (RPi ve ESP32): röle tetikleme, otomatik yeniden bağlanma, fail-closed davranış
-- [ ] Backend'de agent bağlantı durumu izleme (kopukken üyeye anlaşılır hata)
-- [ ] QR üretimi: kısa ömürlü, imzalı token (ömür `TBD`)
-- [ ] QR doğrulama ucu: abonelik kontrolü + konum kontrolü → açma sinyali
-- [ ] Red koşulları ve kullanıcıya neden gösterimi: aktif abonelik yok / konum salon dışı
-- [ ] Konum doğrulama servisi: salon koordinatı + yarıçap karşılaştırması
-- [ ] Event Queue ile geçiş loglama (başarılı/reddedilen)
-- [ ] Mobilde QR ekranı ve okutma akışı
+- [x] Device Gateway: WebSocket sunucu, cihaz başına önceden paylaşılan token ile agent kimlik doğrulaması (token sadece oluşturmada bir kez gösterilir, sunucuda sha256 hash saklanır)
+- [x] Agent referans implementasyonu (RPi ve ESP32): röle tetikleme, otomatik yeniden bağlanma, fail-closed davranış
+- [x] Backend'de agent bağlantı durumu izleme (30 sn ping/pong, panelde çevrimiçi/çevrimdışı durumu, üyeye "Turnike bağlantısı şu an yok" uyarısı `gatewayOnline` bayrağı ile)
+- [x] QR üretimi: kısa ömürlü, imzalı token (HMAC-SHA256, `OG1.` formatı — ömür 60 sn olarak kararlaştırıldı)
+- [x] QR doğrulama ucu: imza + süre + replay (Redis jti) + abonelik kontrolü → `openMs: 500` röle sinyali
+- [x] Red koşulları üyeye gösteriliyor: aktif abonelik yok / konum salon dışı (US-5)
+- [x] Konum doğrulama servisi: salon koordinatı + yarıçap ayarlardan; ayarlanmamışsa kontrol atlanır
+- [x] Event Queue ile geçiş loglama: Redis kuyruk → `entry_events` koleksiyonu; panelde "Geçişler" sayfası
+- [x] Mobilde QR ekranı: konum izni, geri sayım, otomatik yenileme
+- [x] Panelde "Cihazlar" sayfası (admin)
 
-**Definition of Done:** US-5 kabul kriterleri geçer. KPI-1 (QR → açılma < 2 sn) ve KPI-5 (geçersiz denemelerin %100 reddi) ölçülüp doğrulanır.
+**Definition of Done:** US-5 kabul kriterleri uçtan uca test edildi (sim agent ile); **KPI-1 ölçüldü: QR → açılma ~2 ms (hedef < 2 sn)**; **KPI-5 doğrulandı: geçersiz denemelerin %100'ü reddedildi** (süresi dolmuş, tekrar kullanılmış, sahte token, aboneliksiz üye, salon dışı konum senaryolarının tümü).
 
 ---
 

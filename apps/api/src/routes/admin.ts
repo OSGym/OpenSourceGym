@@ -1,7 +1,12 @@
 import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { fromNodeHeaders } from "better-auth/node";
-import type { GymSettings, PublicUser, Role } from "@opengym/shared";
+import type {
+  EntryEvent,
+  GymSettings,
+  PublicUser,
+  Role,
+} from "@opengym/shared";
 import { auth } from "../auth.js";
 import { db } from "../db.js";
 import { logAudit } from "../audit.js";
@@ -74,57 +79,47 @@ adminRouter.post(
 );
 
 // US-3: telefon numarasıyla üye arama (personel + admin)
-adminRouter.get(
-  "/users",
-  requireRole("admin", "staff"),
-  async (req, res) => {
-    const phone = String(req.query.phone ?? "").trim();
-    if (phone.length < 4) {
-      res
-        .status(400)
-        .json({ message: "En az 4 haneli telefon numarası girin." });
-      return;
-    }
-    const escaped = phone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const docs = await db
-      .collection("user")
-      .find({ phone: { $regex: escaped } })
-      .limit(20)
-      .toArray();
-    res.json(docs.map((d) => toPublicUser(d as never)));
-  },
-);
+adminRouter.get("/users", requireRole("admin", "staff"), async (req, res) => {
+  const phone = String(req.query.phone ?? "").trim();
+  if (phone.length < 4) {
+    res.status(400).json({ message: "En az 4 haneli telefon numarası girin." });
+    return;
+  }
+  const escaped = phone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const docs = await db
+    .collection("user")
+    .find({ phone: { $regex: escaped } })
+    .limit(20)
+    .toArray();
+  res.json(docs.map((d) => toPublicUser(d as never)));
+});
 
 // US-3: rol atama (yalnızca admin) — MFA doğrulaması Faz 5'te eklenecek
-adminRouter.post(
-  "/users/:id/role",
-  requireRole("admin"),
-  async (req, res) => {
-    const idParam = String(req.params.id ?? "");
-    const targetId = parseObjectId(idParam);
-    const role = req.body?.role as Role | undefined;
-    if (!targetId || !role || !["admin", "staff", "member"].includes(role)) {
-      res.status(400).json({ message: "Geçersiz kullanıcı veya rol." });
-      return;
-    }
-    if (idParam === req.user!.id) {
-      res.status(400).json({ message: "Kendi rolünüzü değiştiremezsiniz." });
-      return;
-    }
-    const result = await db
-      .collection("user")
-      .findOneAndUpdate({ _id: targetId }, { $set: { role } });
-    if (!result) {
-      res.status(404).json({ message: "Kullanıcı bulunamadı." });
-      return;
-    }
-    await logAudit(req.user!, "role-assigned", idParam, {
-      previousRole: result.role ?? "member",
-      newRole: role,
-    });
-    res.json({ ok: true });
-  },
-);
+adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
+  const idParam = String(req.params.id ?? "");
+  const targetId = parseObjectId(idParam);
+  const role = req.body?.role as Role | undefined;
+  if (!targetId || !role || !["admin", "staff", "member"].includes(role)) {
+    res.status(400).json({ message: "Geçersiz kullanıcı veya rol." });
+    return;
+  }
+  if (idParam === req.user!.id) {
+    res.status(400).json({ message: "Kendi rolünüzü değiştiremezsiniz." });
+    return;
+  }
+  const result = await db
+    .collection("user")
+    .findOneAndUpdate({ _id: targetId }, { $set: { role } });
+  if (!result) {
+    res.status(404).json({ message: "Kullanıcı bulunamadı." });
+    return;
+  }
+  await logAudit(req.user!, "role-assigned", idParam, {
+    previousRole: result.role ?? "member",
+    newRole: role,
+  });
+  res.json({ ok: true });
+});
 
 // US-6: abonelik tanımlama/uzatma (personel + admin)
 adminRouter.post(
@@ -142,7 +137,8 @@ adminRouter.post(
       end <= start
     ) {
       res.status(400).json({
-        message: "Geçerli kullanıcı ve tarih aralığı (bitiş > başlangıç) girin.",
+        message:
+          "Geçerli kullanıcı ve tarih aralığı (bitiş > başlangıç) girin.",
       });
       return;
     }
@@ -235,11 +231,13 @@ adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
     res.status(400).json({ message: "Geçersiz kapasite." });
     return;
   }
-  await db.collection("settings").updateOne(
-    { _id: "gym" as never },
-    { $set: { gymName: gymName.trim(), location: loc, capacity: cap } },
-    { upsert: true },
-  );
+  await db
+    .collection("settings")
+    .updateOne(
+      { _id: "gym" as never },
+      { $set: { gymName: gymName.trim(), location: loc, capacity: cap } },
+      { upsert: true },
+    );
   await logAudit(req.user!, "settings-updated", undefined, {
     gymName: gymName.trim(),
   });
@@ -266,3 +264,28 @@ adminRouter.get("/audit", requireRole("admin"), async (_req, res) => {
     })),
   );
 });
+
+// Faz 4: turnike geçiş olayları (izin/red) — personel + admin
+adminRouter.get(
+  "/entry-events",
+  requireRole("admin", "staff"),
+  async (_req, res) => {
+    const docs = await db
+      .collection("entry_events")
+      .find({})
+      .sort({ at: -1 })
+      .limit(100)
+      .toArray();
+    const body: EntryEvent[] = docs.map((d) => ({
+      id: d._id.toString(),
+      deviceId: d.deviceId,
+      deviceName: d.deviceName,
+      userId: d.userId ?? null,
+      memberName: d.memberName ?? null,
+      allowed: d.allowed,
+      reason: d.reason ?? null,
+      at: d.at.toISOString(),
+    }));
+    res.json(body);
+  },
+);

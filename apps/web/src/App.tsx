@@ -6,6 +6,8 @@ import { ChangePassword } from "./pages/ChangePassword";
 import { Members } from "./pages/Members";
 import { Settings } from "./pages/Settings";
 import { Audit } from "./pages/Audit";
+import { Devices } from "./pages/Devices";
+import { Entries } from "./pages/Entries";
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { refetch } = useSessionUser();
@@ -18,6 +20,10 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           <NavLink to="/members">Üyeler</NavLink>
+          <NavLink to="/entries">Geçişler</NavLink>
+          {profile?.role === "admin" && (
+            <NavLink to="/devices">Cihazlar</NavLink>
+          )}
           {profile?.role === "admin" && (
             <NavLink to="/settings">Ayarlar</NavLink>
           )}
@@ -77,6 +83,10 @@ function Gate() {
       <Shell>
         <Routes>
           <Route path="/members" element={<Members />} />
+          <Route path="/entries" element={<Entries />} />
+          {profile.role === "admin" && (
+            <Route path="/devices" element={<Devices />} />
+          )}
           {profile.role === "admin" && (
             <Route path="/settings" element={<Settings />} />
           )}

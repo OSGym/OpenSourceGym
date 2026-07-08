@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import express from "express";
 import { toNodeHandler } from "better-auth/node";
 import type { HealthResponse } from "@opengym/shared";
@@ -8,6 +9,9 @@ import { auth } from "./auth.js";
 import { seedInitialAdmin } from "./seed.js";
 import { adminRouter } from "./routes/admin.js";
 import { meRouter } from "./routes/me.js";
+import { devicesRouter } from "./routes/devices.js";
+import { attachDeviceGateway } from "./gateway.js";
+import { startEntryEventConsumer } from "./eventQueue.js";
 
 const app = express();
 
@@ -16,6 +20,7 @@ app.all("/api/auth/{*splat}", toNodeHandler(auth));
 
 app.use(express.json());
 
+app.use("/api/admin/devices", devicesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/me", meRouter);
 
@@ -28,11 +33,15 @@ app.get("/health", (_req, res) => {
   res.json(body);
 });
 
+const server = createServer(app);
+
 async function main() {
   await mongoClient.connect();
   await connectRedis();
   await seedInitialAdmin();
-  app.listen(env.port, () => {
+  attachDeviceGateway(server);
+  await startEntryEventConsumer();
+  server.listen(env.port, () => {
     console.log(`opengym-api listening on :${env.port}`);
   });
 }

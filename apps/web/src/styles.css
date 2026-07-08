@@ -284,6 +284,10 @@ tr:hover td {
   color: var(--ok);
 }
 
+.badge.danger {
+  color: var(--danger);
+}
+
 .msg {
   padding: 10px 14px;
   margin-bottom: 14px;

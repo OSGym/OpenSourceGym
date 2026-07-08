@@ -12,7 +12,13 @@ import { authClient } from "../lib/auth";
 import { colors } from "../theme";
 import { Button, ErrorMsg } from "../ui";
 
-export function Home({ userName }: { userName: string }) {
+export function Home({
+  userName,
+  onOpenQr,
+}: {
+  userName: string;
+  onOpenQr: () => void;
+}) {
   const [sub, setSub] = useState<MySubscription | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,6 +81,8 @@ export function Home({ userName }: { userName: string }) {
           </>
         )}
       </View>
+
+      <Button title="QR ile giriş" onPress={onOpenQr} />
 
       <View style={home.card}>
         <Text style={home.cardLabel}>SALON DOLULUK</Text>

@@ -11,8 +11,13 @@ import { env } from "./env.js";
 export const auth = betterAuth({
   baseURL: env.betterAuthUrl,
   secret: env.betterAuthSecret,
-  // "opengym://" mobil uygulamanın deep-link scheme'i (@better-auth/expo)
-  trustedOrigins: [...env.trustedOrigins, "opengym://"],
+  // "opengym://" mobil uygulamanın deep-link scheme'i (@better-auth/expo).
+  // "exp://" yalnızca geliştirmede: Expo Go istemcisi exp://<lan-ip>:8081 origin'i gönderir.
+  trustedOrigins: [
+    ...env.trustedOrigins,
+    "opengym://",
+    ...(env.nodeEnv !== "production" ? ["exp://"] : []),
+  ],
   database: mongodbAdapter(db),
 
   secondaryStorage: {
