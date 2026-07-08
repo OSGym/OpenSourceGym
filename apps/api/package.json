@@ -1,0 +1,31 @@
+{
+  "name": "@opengym/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@better-auth/expo": "^1.6.23",
+    "@opengym/shared": "workspace:*",
+    "better-auth": "^1.6.23",
+    "express": "^5.1.0",
+    "mongodb": "^7.4.0",
+    "nodemailer": "^9.0.3",
+    "redis": "^6.1.0",
+    "ws": "^8.18.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.1",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.0"
+  }
+}

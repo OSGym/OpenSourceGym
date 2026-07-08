@@ -1,0 +1,146 @@
+# OpenGym — Geliştirme Yol Haritası
+
+> PRD §4.1'deki fazlı çıkış planının geliştirme adımlarına bölünmüş hali.
+> Eşleme: **MVP = Faz 0–3 · v1.1 = Faz 4–5 · v2.0 = Faz 6**
+> US-x ve KPI-x referansları [PRD.md](PRD.md) içindeki user story ve başarı kriterlerine işaret eder.
+
+---
+
+## Faz 0 — Temel Altyapı
+
+**Hedef:** Monorepo iskeletini ve yerel geliştirme/kurulum ortamını ayağa kaldırmak. KPI-3'ün (kurulum < 30 dk) temeli burada atılır.
+
+**Bağımlılıklar:** Yok (başlangıç fazı).
+
+**İş Kırılımı:**
+
+- [x] Monorepo kurulumu (pnpm workspaces + Turborepo)
+- [x] Paket iskeleti:
+  - `apps/api` — Express backend
+  - `apps/web` — React admin panel (Vite)
+  - `apps/mobile` — placeholder (Faz 3'te Expo ile başlatılacak)
+  - `packages/shared` — ortak tipler ve validasyon şemaları
+- [x] Docker Compose: MongoDB, Redis, API servisi
+- [x] TypeScript yapılandırması (strict), ESLint, Prettier
+- [x] Temel CI (lint + typecheck + build — GitHub Actions)
+- [x] API health endpoint (`GET /health`)
+
+**Definition of Done:** `docker compose up` tek komutla çalışır; health endpoint 200 döner; CI yeşil.
+
+---
+
+## Faz 1 — Kimlik ve Üye Kaydı
+
+**Hedef:** BetterAuth tabanlı kimlik altyapısı ve üye self-servis kayıt akışı (US-1).
+
+**Bağımlılıklar:** Faz 0. Harici: SMTP sağlayıcı hesabı.
+
+**İş Kırılımı:**
+
+- [x] BetterAuth entegrasyonu: e-posta + şifre, oturum/token yönetimi (Mongo adapter + Redis secondary storage)
+- [x] Üye kayıt API'si: isim, soyisim, telefon, e-posta, şifre
+- [x] KVKK aydınlatma metni + gizlilik sözleşmesi onayları (zaman damgalı kayıt, onaysız kayıt reddedilir)
+- [x] SMTP e-posta doğrulama: 6 haneli OTP, 10 dk geçerli; kod gönderimi, doğrulama ucu, kod yeniden gönderme (SMTP yapılandırılmamışsa dev'de konsola yazılır)
+- [x] Doğrulanmamış hesabın girişinin engellenmesi (403 EMAIL_NOT_VERIFIED)
+- [x] Şifre politikası: min. 8 karakter (BetterAuth `minPasswordLength`)
+- [x] Rate limiting: kayıt 3/dk, giriş 5/dk, OTP uçları 3-5/dk (Redis üzerinde)
+
+**Definition of Done:** US-1 kabul kriterleri uçtan uca geçer: kayıt → e-posta doğrulama → giriş. Doğrulamasız giriş ve onaysız kayıt reddedilir.
+
+---
+
+## Faz 2 — Admin Panel ve Roller
+
+**Hedef:** Admin panelin çekirdeği: güvenli ilk kurulum, rol yönetimi, abonelik tanımlama (US-2, US-3 kısmi, US-6).
+
+**Bağımlılıklar:** Faz 1 (auth altyapısı).
+
+**İş Kırılımı:**
+
+- [x] React admin panel iskeleti (routing, auth guard, layout)
+- [x] İlk kurulum akışı: `admin@opengym.local` / `admin1234` → zorunlu şifre değişimi; şifre değişmeden tüm panel uçları middleware ile kilitli (US-2). Not: e-posta tabanlı auth + min 8 karakter politikası nedeniyle `admin:admin` yerine bu kimlik kullanıldı.
+- [x] Kurulum sihirbazı iskeleti (salon adı, koordinatlar, kapasite; SMTP env ile yapılandırılıyor, MFA seçeneği Faz 5'te eklenir)
+- [x] Rol sistemi: admin / staff / member
+- [x] Personel ekleme: telefon numarasıyla üye arama + rol atama (US-3 — MFA doğrulaması Faz 5'e ertelendi)
+- [x] Hassas işlem loglaması (rol atama, abonelik, ayar, şifre değişimi) — `audit_logs` koleksiyonu
+- [x] Abonelik tanımlama/uzatma: süre paketi (1/3/6/12 ay), işlemi yapan personel kaydıyla (US-6); üye tarafı için `/api/me/subscription` hazır
+
+**Definition of Done:** US-2 tam; US-3 MFA hariç tam; US-6 kabul kriterleri geçer. Şifre değiştirilmeden hiçbir panel sayfası açılmaz.
+
+---
+
+## Faz 3 — Mobil Uygulama (MVP Kapanışı)
+
+**Hedef:** Üyenin mobilden kayıt olup aboneliğini görebilmesi (US-1 mobil yüzü, US-4 doluluk hariç). Bu fazın sonunda MVP tamamlanır.
+
+**Bağımlılıklar:** Faz 1 (kayıt API'si), Faz 2 (abonelik verisi).
+
+**İş Kırılımı:**
+
+- [x] React Native (Expo SDK 57) iskelet + BetterAuth istemci entegrasyonu (`@better-auth/expo` + SecureStore)
+- [x] Kayıt ekranı: form alanları, KVKK/gizlilik onay kutuları, e-posta doğrulama (OTP) akışı + doğrulama sonrası otomatik giriş
+- [x] Giriş ekranı (doğrulanmamış hesapta OTP ekranına yönlendirme + kod yeniden gönderme)
+- [x] Ana ekran: kalan gün sayısı, abonelik bitiş tarihi, pull-to-refresh (US-4 — doluluk oranı Faz 5'te)
+- [ ] KPI-2 ölçümü: kayıt akışı < 3 dk (manuel ölçüm bekliyor)
+
+**Definition of Done:** ✅ Emülatörde uçtan uca doğrulandı — üye mobilden kayıt oldu, OTP ile doğrulandı, admin API'den abonelik tanımlandı, mobilde "92 gün kaldı" kartı görüntülendi.
+
+**Bilinen sorun:** İlk açılışta LogBox'ta "error during concurrent rendering, recovered" uyarısı (React 19.2 + better-auth useSession; uygulama düzgün çalışıyor, dev-only uyarı). Faz 4'te izlenecek.
+
+---
+
+## Faz 4 — Turnike ve QR (v1.1)
+
+**Hedef:** QR ile turnike geçişi: Device Gateway, cihaz agent'ları, doğrulama zinciri (US-5).
+
+**Bağımlılıklar:** Faz 3 (mobil uygulama), Faz 2 (abonelik verisi). Harici: RPi/ESP32 + röle + turnike donanımı.
+
+**İş Kırılımı:**
+
+- [ ] Device Gateway: WebSocket sunucu, cihaz başına önceden paylaşılan token ile agent kimlik doğrulaması
+- [ ] Agent referans implementasyonu (RPi ve ESP32): röle tetikleme, otomatik yeniden bağlanma, fail-closed davranış
+- [ ] Backend'de agent bağlantı durumu izleme (kopukken üyeye anlaşılır hata)
+- [ ] QR üretimi: kısa ömürlü, imzalı token (ömür `TBD`)
+- [ ] QR doğrulama ucu: abonelik kontrolü + konum kontrolü → açma sinyali
+- [ ] Red koşulları ve kullanıcıya neden gösterimi: aktif abonelik yok / konum salon dışı
+- [ ] Konum doğrulama servisi: salon koordinatı + yarıçap karşılaştırması
+- [ ] Event Queue ile geçiş loglama (başarılı/reddedilen)
+- [ ] Mobilde QR ekranı ve okutma akışı
+
+**Definition of Done:** US-5 kabul kriterleri geçer. KPI-1 (QR → açılma < 2 sn) ve KPI-5 (geçersiz denemelerin %100 reddi) ölçülüp doğrulanır.
+
+---
+
+## Faz 5 — Güvenlik Sertleştirme ve Doluluk (v1.1 Kapanışı)
+
+**Hedef:** MFA ile hassas işlemlerin korunması, doluluk oranı, KVKK akışlarının tamamlanması (US-3 tam, US-4 tam).
+
+**Bağımlılıklar:** Faz 2 (rol sistemi), Faz 4 (turnike sayaçları — doluluk için).
+
+**İş Kırılımı:**
+
+- [ ] MFA: TOTP (authenticator) + SMTP kod seçenekleri
+- [ ] Rol atama işlemlerinde MFA etkinse zorunlu doğrulama (US-3 tamamlanır)
+- [ ] Kurulum sihirbazına MFA etkinleştirme seçeneği
+- [ ] Doluluk oranı: turnike giriş/çıkış sayacından anlık içerideki üye sayısı (çıkış turnikesi yoksa yöntem `TBD`) — mobil ana ekrana eklenir (US-4 tamamlanır)
+- [ ] KVKK silme talebi akışı
+- [ ] KPI-4: Device Gateway uptime izlemesi (≥ %99)
+
+**Definition of Done:** US-3 ve US-4 tüm kabul kriterleriyle tam; uptime izleme panelde görünür.
+
+---
+
+## Faz 6 — v2.0 (İleri)
+
+**Hedef:** Hesap paylaşımı tespiti ve istemci sertleştirme.
+
+**Bağımlılıklar:** Faz 5.
+
+**İş Kırılımı:**
+
+- [ ] Hesap paylaşımı tespiti: cihaz kimliği, eş zamanlı oturum, konum tutarsızlığı sinyalleri (sinyal seti `TBD`)
+- [ ] Mobil anti-debugging sertleştirme
+- [ ] Konum spoofing'e karşı ek sinyaller (PRD §4.2)
+- [ ] Ek A deneysel katman (path obfuscation + cipher) değerlendirmesi — şimdilik yapılmayacak, ihtiyaç doğarsa birincil güvenlik katmanının üzerine
+
+**Definition of Done:** Kapsam v2.0 planlamasında netleştirilecek (`TBD`).
