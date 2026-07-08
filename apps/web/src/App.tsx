@@ -8,6 +8,8 @@ import { Settings } from "./pages/Settings";
 import { Audit } from "./pages/Audit";
 import { Devices } from "./pages/Devices";
 import { Entries } from "./pages/Entries";
+import { Security } from "./pages/Security";
+import { Kvkk } from "./pages/Kvkk";
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { refetch } = useSessionUser();
@@ -21,6 +23,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         <nav className="nav">
           <NavLink to="/members">Üyeler</NavLink>
           <NavLink to="/entries">Geçişler</NavLink>
+          <NavLink to="/security">Güvenlik</NavLink>
           {profile?.role === "admin" && (
             <NavLink to="/devices">Cihazlar</NavLink>
           )}
@@ -30,6 +33,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           {profile?.role === "admin" && (
             <NavLink to="/audit">İşlem kaydı</NavLink>
           )}
+          {profile?.role === "admin" && <NavLink to="/kvkk">KVKK</NavLink>}
         </nav>
         <div className="whoami">
           <span className="mono">{profile?.email}</span>
@@ -84,6 +88,7 @@ function Gate() {
         <Routes>
           <Route path="/members" element={<Members />} />
           <Route path="/entries" element={<Entries />} />
+          <Route path="/security" element={<Security />} />
           {profile.role === "admin" && (
             <Route path="/devices" element={<Devices />} />
           )}
@@ -92,6 +97,9 @@ function Gate() {
           )}
           {profile.role === "admin" && (
             <Route path="/audit" element={<Audit />} />
+          )}
+          {profile.role === "admin" && (
+            <Route path="/kvkk" element={<Kvkk />} />
           )}
           <Route path="*" element={<Navigate to="/members" replace />} />
         </Routes>

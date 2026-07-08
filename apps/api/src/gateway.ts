@@ -5,6 +5,7 @@ import { ObjectId } from "mongodb";
 import { WebSocket, WebSocketServer } from "ws";
 import type {
   DeviceClientMessage,
+  DeviceDirection,
   DeviceServerMessage,
   EntryDenyReason,
 } from "@opengym/shared";
@@ -13,6 +14,8 @@ import { redis } from "./redis.js";
 import { QR_TOKEN_TTL_SECONDS, verifyQrToken } from "./qr.js";
 import { hasActiveSubscription } from "./subscriptions.js";
 import { enqueueEntryEvent } from "./eventQueue.js";
+import { markInside, markOutside } from "./occupancy.js";
+import { logDeviceStatus, sweepStaleOnlineStatus } from "./deviceStatus.js";
 
 const GATEWAY_PATH = "/api/device-gateway";
 const AUTH_TIMEOUT_MS = 5000;
@@ -21,6 +24,9 @@ const PING_INTERVAL_MS = 30_000;
 interface DeviceSocket extends WebSocket {
   deviceId?: string;
   deviceName?: string;
+  // Turnike yönü: "in" giriş (doluluk +1, abonelik kontrolü var), "out" çıkış
+  // (doluluk -1, abonelik kontrolü yok)
+  direction?: DeviceDirection;
   isAlive?: boolean;
 }
 
@@ -49,10 +55,12 @@ function registerDevice(id: string, ws: DeviceSocket): void {
   devices.set(id, ws);
 }
 
-// Registry'den yalnızca hâlâ aynı soketi işaret ediyorsa siler (yer değiştirmiş bağlantıyı bozmaz)
+// Registry'den yalnızca hâlâ aynı soketi işaret ediyorsa siler (yer değiştirmiş
+// bağlantıyı bozmaz); kayıt gerçekten kaldırıldığında KPI-4 için "offline" loglanır
 function unregisterDevice(id: string, ws: DeviceSocket): void {
   if (devices.get(id) === ws) {
     devices.delete(id);
+    logDeviceStatus(id, false);
   }
 }
 
@@ -69,6 +77,7 @@ export function disconnectDevice(id: string): void {
   if (ws) {
     ws.close(4001, "cihaz kaldırıldı");
     devices.delete(id);
+    logDeviceStatus(id, false);
   }
 }
 
@@ -120,10 +129,12 @@ async function authenticate(
 
     ws.deviceId = msg.deviceId;
     ws.deviceName = device.name as string;
+    ws.direction = (device.direction as DeviceDirection | undefined) ?? "in";
     ws.isAlive = true;
     registerDevice(msg.deviceId, ws);
     send(ws, { type: "auth_ok", deviceName: ws.deviceName });
     touchLastSeen(msg.deviceId);
+    logDeviceStatus(msg.deviceId, true);
     ws.on("message", (data) => {
       handleScan(ws, data).catch((err) => {
         console.error("tarama işlenirken hata:", err);
@@ -216,7 +227,9 @@ async function handleScan(
       return;
     }
 
-    if (!(await hasActiveSubscription(userId))) {
+    const direction = ws.direction ?? "in";
+    // Çıkışta abonelik aranmaz — süresi bitmiş üye de dışarı çıkabilmeli
+    if (direction === "in" && !(await hasActiveSubscription(userId))) {
       deny(
         "NO_ACTIVE_SUBSCRIPTION",
         userId,
@@ -233,6 +246,11 @@ async function handleScan(
       memberName,
       openMs: 500,
     });
+    if (direction === "out") {
+      await markOutside(userId);
+    } else {
+      await markInside(userId);
+    }
     enqueueEntryEvent({
       deviceId,
       deviceName,
@@ -250,6 +268,10 @@ async function handleScan(
 }
 
 export function attachDeviceGateway(server: Server): void {
+  // Sunucu çöktükten/yeniden başladıktan sonra "online: true" takılı kalmış
+  // durum kayıtlarını kapatır (KPI-4 uptime hesaplaması yanlış şişmesin diye)
+  sweepStaleOnlineStatus();
+
   // maxPayload: cihaz mesajları (auth/scan) 1 KB altındadır; büyük frame'lerle
   // kimlik doğrulaması öncesi bellek tüketimini engeller
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 });

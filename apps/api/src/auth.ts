@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
-import { emailOTP } from "better-auth/plugins";
+import { emailOTP, twoFactor } from "better-auth/plugins";
 import { expo } from "@better-auth/expo";
 import { db } from "./db.js";
 import { redis } from "./redis.js";
@@ -106,6 +106,21 @@ export const auth = betterAuth({
         });
       },
     }),
+    // Faz 5 — US-3: hassas admin işlemleri (rol atama) için MFA. Mongo adapter
+    // "twoFactor" koleksiyonunu göç (migration) gerektirmeden otomatik oluşturur
+    twoFactor({
+      issuer: "OpenGym",
+      otpOptions: {
+        storeOTP: "hashed",
+        async sendOTP({ user, otp }) {
+          await sendMail({
+            to: user.email,
+            subject: "OpenGym güvenlik kodunuz",
+            text: `Güvenlik kodunuz: ${otp}\nKod 3 dakika geçerlidir.`,
+          });
+        },
+      },
+    }),
   ],
 
   rateLimit: {
@@ -118,6 +133,9 @@ export const auth = betterAuth({
       "/sign-in/email": { window: 60, max: 5 },
       "/email-otp/send-verification-otp": { window: 60, max: 3 },
       "/email-otp/verify-email": { window: 60, max: 5 },
+      "/two-factor/send-otp": { window: 60, max: 3 },
+      "/two-factor/verify-totp": { window: 60, max: 5 },
+      "/two-factor/verify-otp": { window: 60, max: 5 },
     },
   },
 });

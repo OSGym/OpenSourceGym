@@ -11,6 +11,7 @@ export interface SessionUser {
   name: string;
   role: Role;
   mustChangePassword: boolean;
+  twoFactorEnabled: boolean;
 }
 
 declare global {
@@ -46,6 +47,7 @@ export function requireRole(...roles: Role[]) {
       name: doc.name,
       role: (doc.role ?? "member") as Role,
       mustChangePassword: doc.mustChangePassword ?? false,
+      twoFactorEnabled: doc.twoFactorEnabled ?? false,
     };
     if (!roles.includes(user.role)) {
       res.status(403).json({ message: "Bu işlem için yetkiniz yok." });

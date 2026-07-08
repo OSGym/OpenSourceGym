@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { fromNodeHeaders } from "better-auth/node";
+import { z } from "zod";
 import type {
+  DeletionRequest,
   EntryEvent,
   GymSettings,
   PublicUser,
@@ -9,8 +11,10 @@ import type {
 } from "@opengym/shared";
 import { auth } from "../auth.js";
 import { db } from "../db.js";
+import { redis } from "../redis.js";
 import { logAudit } from "../audit.js";
 import { requireRole } from "../middleware.js";
+import { markOutside } from "../occupancy.js";
 
 export const adminRouter: Router = Router();
 
@@ -23,6 +27,7 @@ function toPublicUser(doc: {
   phone?: string;
   role?: string;
   emailVerified?: boolean;
+  twoFactorEnabled?: boolean;
   createdAt?: Date;
 }): PublicUser {
   return {
@@ -34,6 +39,7 @@ function toPublicUser(doc: {
     phone: doc.phone ?? "",
     role: (doc.role ?? "member") as Role,
     emailVerified: doc.emailVerified ?? false,
+    twoFactorEnabled: doc.twoFactorEnabled ?? false,
     createdAt: doc.createdAt?.toISOString() ?? "",
   };
 }
@@ -94,7 +100,12 @@ adminRouter.get("/users", requireRole("admin", "staff"), async (req, res) => {
   res.json(docs.map((d) => toPublicUser(d as never)));
 });
 
-// US-3: rol atama (yalnızca admin) — MFA doğrulaması Faz 5'te eklenecek
+const mfaSchema = z.object({
+  mfaCode: z.string().min(1),
+  mfaMethod: z.enum(["totp", "otp"]),
+});
+
+// US-3: rol atama (yalnızca admin) — çağıranın MFA'sı etkinse ek doğrulama gerekir
 adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
   const idParam = String(req.params.id ?? "");
   const targetId = parseObjectId(idParam);
@@ -107,6 +118,55 @@ adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
     res.status(400).json({ message: "Kendi rolünüzü değiştiremezsiniz." });
     return;
   }
+
+  // MFA etkin adminler için rol atama, TOTP veya OTP ile ek doğrulama gerektirir
+  let mfaVerified = false;
+  if (req.user!.twoFactorEnabled) {
+    const parsedMfa = mfaSchema.safeParse(req.body);
+    if (!parsedMfa.success) {
+      res.status(403).json({
+        code: "MFA_REQUIRED",
+        message: "Bu işlem için MFA doğrulaması gerekli.",
+      });
+      return;
+    }
+    const { mfaCode, mfaMethod } = parsedMfa.data;
+
+    // Kaba kuvvet kilidi: BetterAuth'un HTTP hız sınırı doğrudan auth.api.*
+    // çağrılarını KAPSAMAZ — deneme sayacı burada tutulur (15 dk / 5 hatalı kod)
+    const mfaFailKey = `og:mfa-fail:${req.user!.id}`;
+    const failCount = Number((await redis.get(mfaFailKey)) ?? 0);
+    if (failCount >= 5) {
+      res.status(429).json({
+        code: "MFA_LOCKED",
+        message:
+          "Çok fazla hatalı kod denemesi. 15 dakika sonra tekrar deneyin.",
+      });
+      return;
+    }
+
+    try {
+      const headers = fromNodeHeaders(req.headers);
+      if (mfaMethod === "totp") {
+        await auth.api.verifyTOTP({ body: { code: mfaCode }, headers });
+      } else {
+        await auth.api.verifyTwoFactorOTP({ body: { code: mfaCode }, headers });
+      }
+      mfaVerified = true;
+      await redis.del(mfaFailKey);
+    } catch {
+      const fails = await redis.incr(mfaFailKey);
+      if (fails === 1) {
+        await redis.expire(mfaFailKey, 900);
+      }
+      res.status(403).json({
+        code: "MFA_INVALID",
+        message: "Doğrulama kodu geçersiz veya süresi dolmuş.",
+      });
+      return;
+    }
+  }
+
   const result = await db
     .collection("user")
     .findOneAndUpdate({ _id: targetId }, { $set: { role } });
@@ -117,6 +177,7 @@ adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
   await logAudit(req.user!, "role-assigned", idParam, {
     previousRole: result.role ?? "member",
     newRole: role,
+    mfaVerified,
   });
   res.json({ ok: true });
 });
@@ -200,12 +261,13 @@ adminRouter.get("/settings", requireRole("admin"), async (_req, res) => {
     gymName: doc?.gymName ?? "",
     location: doc?.location ?? null,
     capacity: doc?.capacity ?? null,
+    autoExitHours: doc?.autoExitHours ?? 4,
   };
   res.json(settings);
 });
 
 adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
-  const { gymName, location, capacity } = req.body ?? {};
+  const { gymName, location, capacity, autoExitHours } = req.body ?? {};
   if (typeof gymName !== "string" || !gymName.trim()) {
     res.status(400).json({ message: "Salon adı zorunludur." });
     return;
@@ -231,15 +293,30 @@ adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
     res.status(400).json({ message: "Geçersiz kapasite." });
     return;
   }
-  await db
-    .collection("settings")
-    .updateOne(
-      { _id: "gym" as never },
-      { $set: { gymName: gymName.trim(), location: loc, capacity: cap } },
-      { upsert: true },
-    );
+  const autoExit = autoExitHours == null ? 4 : Number(autoExitHours);
+  if (
+    !Number.isInteger(autoExit) ||
+    autoExit < 1 ||
+    autoExit > 48
+  ) {
+    res.status(400).json({ message: "Geçersiz otomatik çıkış süresi." });
+    return;
+  }
+  await db.collection("settings").updateOne(
+    { _id: "gym" as never },
+    {
+      $set: {
+        gymName: gymName.trim(),
+        location: loc,
+        capacity: cap,
+        autoExitHours: autoExit,
+      },
+    },
+    { upsert: true },
+  );
   await logAudit(req.user!, "settings-updated", undefined, {
     gymName: gymName.trim(),
+    autoExitHours: autoExit,
   });
   res.json({ ok: true });
 });
@@ -287,5 +364,147 @@ adminRouter.get(
       at: d.at.toISOString(),
     }));
     res.json(body);
+  },
+);
+
+// Faz 5 — KVKK: bekleyen hesap silme talepleri listesi (yalnızca admin)
+adminRouter.get("/deletion-requests", requireRole("admin"), async (_req, res) => {
+  const docs = await db
+    .collection("deletion_requests")
+    .find({})
+    .sort({ requestedAt: -1 })
+    .limit(100)
+    .toArray();
+  const body: DeletionRequest[] = docs.map((d) => ({
+    id: d._id.toString(),
+    userId: (d.userId as ObjectId).toString(),
+    email: d.email ?? "",
+    name: d.name ?? "",
+    requestedAt: d.requestedAt.toISOString(),
+    status: d.status,
+    resolvedAt: d.resolvedAt ? new Date(d.resolvedAt).toISOString() : null,
+    resolvedBy: d.resolvedBy ?? null,
+  }));
+  res.json(body);
+});
+
+// KVKK: silme talebini onaylar — üyeyi ve tüm ilişkili verilerini kalıcı olarak siler
+adminRouter.post(
+  "/deletion-requests/:id/approve",
+  requireRole("admin"),
+  async (req, res) => {
+    const requestId = parseObjectId(String(req.params.id ?? ""));
+    if (!requestId) {
+      res.status(404).json({ message: "Silme talebi bulunamadı." });
+      return;
+    }
+    const request = await db
+      .collection("deletion_requests")
+      .findOne({ _id: requestId });
+    if (!request) {
+      res.status(404).json({ message: "Silme talebi bulunamadı." });
+      return;
+    }
+    if (request.status !== "pending") {
+      res.status(409).json({ message: "Silme talebi zaten sonuçlandırılmış." });
+      return;
+    }
+
+    const targetId = request.userId as ObjectId;
+    const targetIdStr = targetId.toString();
+
+    // Redis'te önbelleğe alınmış BetterAuth oturumları (secondary storage,
+    // anahtar = oturum token'ı) TTL beklemeden açıkça silinir; uygulama
+    // rotaları zaten middleware'in Mongo re-read'iyle 401'e düşer
+    const sessionDocs = await db
+      .collection("session")
+      .find({ userId: targetId })
+      .project({ token: 1 })
+      .toArray();
+    const sessionTokens = sessionDocs
+      .map((s) => String(s.token ?? ""))
+      .filter(Boolean);
+    if (sessionTokens.length > 0) {
+      await redis.del(sessionTokens).catch(console.error);
+    }
+    await redis.del(`active-sessions-${targetIdStr}`).catch(console.error);
+
+    await db.collection("user").deleteOne({ _id: targetId });
+    await db.collection("account").deleteMany({ userId: targetId });
+    await db.collection("session").deleteMany({ userId: targetId });
+    await db.collection("subscriptions").deleteMany({ userId: targetId });
+    await db.collection("twoFactor").deleteMany({ userId: targetId });
+    await markOutside(targetIdStr);
+    // Geçmiş turnike kayıtları istatistik için tutulur, ancak kişisel veri
+    // (KVKK) taşımamalıdır
+    await db
+      .collection("entry_events")
+      .updateMany(
+        { userId: targetIdStr },
+        { $set: { userId: null, memberName: null } },
+      );
+    // Audit kayıtlarında da silinen üyenin e-postası kalmamalı (unutulma hakkı);
+    // eylem geçmişi actorId üzerinden anonim olarak korunur
+    await db
+      .collection("audit_logs")
+      .updateMany({ actorId: targetIdStr }, { $set: { actorEmail: null } });
+
+    // Kullanıcının TÜM talepleri (önceki reddedilenler dahil) PII taşımamalı
+    await db
+      .collection("deletion_requests")
+      .updateMany({ userId: targetId }, { $set: { email: null, name: null } });
+    await db.collection("deletion_requests").updateOne(
+      { _id: requestId },
+      {
+        $set: {
+          status: "approved",
+          resolvedAt: new Date(),
+          resolvedBy: req.user!.id,
+        },
+      },
+    );
+
+    await logAudit(req.user!, "kvkk-deletion-approved", targetIdStr);
+    res.json({ ok: true });
+  },
+);
+
+// KVKK: silme talebini reddeder
+adminRouter.post(
+  "/deletion-requests/:id/reject",
+  requireRole("admin"),
+  async (req, res) => {
+    const requestId = parseObjectId(String(req.params.id ?? ""));
+    if (!requestId) {
+      res.status(404).json({ message: "Silme talebi bulunamadı." });
+      return;
+    }
+    const request = await db
+      .collection("deletion_requests")
+      .findOne({ _id: requestId });
+    if (!request) {
+      res.status(404).json({ message: "Silme talebi bulunamadı." });
+      return;
+    }
+    if (request.status !== "pending") {
+      res.status(409).json({ message: "Silme talebi zaten sonuçlandırılmış." });
+      return;
+    }
+    await db.collection("deletion_requests").updateOne(
+      { _id: requestId },
+      {
+        $set: {
+          status: "rejected",
+          resolvedAt: new Date(),
+          resolvedBy: req.user!.id,
+        },
+      },
+    );
+    await logAudit(
+      req.user!,
+      "kvkk-deletion-rejected",
+      (request.userId as ObjectId).toString(),
+    );
+    res.json({ ok: true });
   },
 );

@@ -120,14 +120,14 @@
 
 **İş Kırılımı:**
 
-- [ ] MFA: TOTP (authenticator) + SMTP kod seçenekleri
-- [ ] Rol atama işlemlerinde MFA etkinse zorunlu doğrulama (US-3 tamamlanır)
-- [ ] Kurulum sihirbazına MFA etkinleştirme seçeneği
-- [ ] Doluluk oranı: turnike giriş/çıkış sayacından anlık içerideki üye sayısı (çıkış turnikesi yoksa yöntem `TBD`) — mobil ana ekrana eklenir (US-4 tamamlanır)
-- [ ] KVKK silme talebi akışı
-- [ ] KPI-4: Device Gateway uptime izlemesi (≥ %99)
+- [x] MFA: TOTP (authenticator) + SMTP kod seçenekleri (better-auth `twoFactor` plugin: authenticator TOTP + e-posta kodu, 10 yedek kod hashed, giriş akışında ikinci adım)
+- [x] Rol atama işlemlerinde MFA etkinse zorunlu doğrulama (US-3 tamamlanır) (`mfaCode` + `mfaMethod` zorunlu; eksikse 403 MFA_REQUIRED, yanlışsa 403 MFA_INVALID; audit mfaVerified kaydı)
+- [x] Kurulum sihirbazına MFA etkinleştirme seçeneği (panelde "Güvenlik" sayfası: QR kurulum, bir kez yedek kodları, parola ile devre dışı)
+- [x] Doluluk oranı: turnike giriş/çıkış sayacından anlık içerideki üye sayısı (giriş +1 Redis og:inside, çıkış -1; çıkış cihazı yoksa ayarlar "otomatik çıkış süresi" varsayılan 4 saat) — mobil ana ekrana eklenir (US-4 tamamlanır)
+- [x] KVKK silme talebi akışı (üye mobilden talep → admin panelden "KVKK" sayfasında onay/red; onayda hesap/abonelikler/oturumlar/MFA silinir, geçişler anonimleştirilir)
+- [x] KPI-4: Device Gateway uptime izlemesi (cihaz bağlantı/kopuş `device_status_log` koleksiyonuna; panelde Cihazlar sayfasında son 24 saat uptime %)
 
-**Definition of Done:** US-3 ve US-4 tüm kabul kriterleriyle tam; uptime izleme panelde görünür.
+**Definition of Done:** US-3 ve US-4 kabul kriterleri uçtan uca test edildi (2026-07-09): MFA enable → 2FA'lı giriş → rol atamada kod zorunluluğu (eksik/yanlış/doğru), giriş/çıkış taramasıyla doluluk 0→1→0, aboneliksiz üyenin girişi reddedildi ve çıkışa izin, KVKK talep→red→yeniden talep→onay→tam silme/anonimleştirme; uptime izleme panelde görünür.
 
 ---
 

@@ -3,7 +3,9 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import type {
   GymSettings,
+  MyDeletionRequest,
   MySubscription,
+  OccupancyResponse,
   QrTokenResponse,
 } from "@opengym/shared";
 import { db } from "../db.js";
@@ -13,6 +15,8 @@ import { distanceMeters } from "../geo.js";
 import { issueQrToken } from "../qr.js";
 import { hasActiveSubscription } from "../subscriptions.js";
 import { isAnyDeviceOnline } from "../gateway.js";
+import { getOccupancy } from "../occupancy.js";
+import { logAudit } from "../audit.js";
 
 export const meRouter: Router = Router();
 
@@ -122,5 +126,103 @@ meRouter.post(
       gatewayOnline: isAnyDeviceOnline(),
     };
     res.json(body);
+  },
+);
+
+// Faz 5 — US-4: anlık salon doluluğu
+meRouter.get(
+  "/occupancy",
+  requireRole("admin", "staff", "member"),
+  async (_req, res) => {
+    const inside = await getOccupancy();
+    const settings = await db
+      .collection("settings")
+      .findOne({ _id: "gym" as never });
+    const capacity = (settings?.capacity as number | null | undefined) ?? null;
+    const body: OccupancyResponse = {
+      inside,
+      capacity,
+      ratio: capacity ? Math.round((inside / capacity) * 100) / 100 : null,
+    };
+    res.json(body);
+  },
+);
+
+// Faz 5 — KVKK: üyenin kendi hesap silme talebi durumu
+meRouter.get(
+  "/deletion-request",
+  requireRole("admin", "staff", "member"),
+  async (req, res) => {
+    const latest = await db
+      .collection("deletion_requests")
+      .find({ userId: new ObjectId(req.user!.id) })
+      .sort({ requestedAt: -1 })
+      .limit(1)
+      .next();
+    const body: MyDeletionRequest = latest
+      ? {
+          status:
+            latest.status === "pending"
+              ? "pending"
+              : latest.status === "rejected"
+                ? "rejected"
+                : "none",
+          requestedAt: latest.requestedAt
+            ? new Date(latest.requestedAt).toISOString()
+            : null,
+        }
+      : { status: "none", requestedAt: null };
+    res.json(body);
+  },
+);
+
+// KVKK: hesap silme talebi oluşturma — yalnızca üye rolü kendi hesabı için talep açabilir
+meRouter.post(
+  "/deletion-request",
+  requireRole("admin", "staff", "member"),
+  async (req, res) => {
+    if (req.user!.role !== "member") {
+      res.status(403).json({
+        message: "Yalnızca üye hesapları silme talebi oluşturabilir.",
+      });
+      return;
+    }
+    const userId = new ObjectId(req.user!.id);
+    const existingPending = await db
+      .collection("deletion_requests")
+      .findOne({ userId, status: "pending" });
+    if (existingPending) {
+      res.status(409).json({ message: "Zaten bekleyen bir silme talebiniz var." });
+      return;
+    }
+    await db.collection("deletion_requests").insertOne({
+      userId,
+      email: req.user!.email,
+      name: req.user!.name,
+      requestedAt: new Date(),
+      status: "pending",
+      resolvedAt: null,
+      resolvedBy: null,
+    });
+    await logAudit(req.user!, "kvkk-deletion-requested");
+    res.json({ ok: true });
+  },
+);
+
+// KVKK: bekleyen silme talebini geri çekme
+meRouter.delete(
+  "/deletion-request",
+  requireRole("admin", "staff", "member"),
+  async (req, res) => {
+    const result = await db.collection("deletion_requests").deleteOne({
+      userId: new ObjectId(req.user!.id),
+      status: "pending",
+    });
+    if (result.deletedCount === 0) {
+      res.status(404).json({ message: "Bekleyen bir silme talebi bulunamadı." });
+      return;
+    }
+    await logAudit(req.user!, "kvkk-deletion-cancelled");
+    res.json({ ok: true });
   },
 );
