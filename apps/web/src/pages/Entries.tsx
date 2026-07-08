@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import type { EntryDenyReason, EntryEvent } from "@opengym/shared";
+import type {
+  EntryDenyReason,
+  EntryEvent,
+  OccupancyResponse,
+} from "@opengym/shared";
 import { api } from "../lib/api";
 
 const reasonLabels: Record<EntryDenyReason, string> = {
@@ -14,11 +18,17 @@ const reasonLabel = (reason: EntryDenyReason | null) =>
 
 export function Entries() {
   const [entries, setEntries] = useState<EntryEvent[]>([]);
+  const [occupancy, setOccupancy] = useState<OccupancyResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     try {
-      setEntries(await api<EntryEvent[]>("/api/admin/entry-events"));
+      const [events, occ] = await Promise.all([
+        api<EntryEvent[]>("/api/admin/entry-events"),
+        api<OccupancyResponse>("/api/me/occupancy"),
+      ]);
+      setEntries(events);
+      setOccupancy(occ);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Yüklenemedi.");
@@ -34,6 +44,13 @@ export function Entries() {
   return (
     <div className="stagger">
       <h1>Geçişler</h1>
+      {occupancy && (
+        <p className="hint" style={{ marginBottom: 16 }}>
+          İçeride: {occupancy.inside}
+          {occupancy.ratio != null &&
+            ` · %${Math.round(occupancy.ratio * 100)} doluluk`}
+        </p>
+      )}
       {error && <div className="msg error">{error}</div>}
       <div className="panel">
         <table>

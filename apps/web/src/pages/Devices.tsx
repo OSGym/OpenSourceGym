@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react";
-import type { Device, DeviceCreated } from "@opengym/shared";
+import type { Device, DeviceCreated, DeviceDirection } from "@opengym/shared";
 import { api } from "../lib/api";
 
 const fmt = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("tr-TR") : "—";
 
+const directionLabels: Record<DeviceDirection, string> = {
+  in: "Giriş",
+  out: "Çıkış",
+};
+
 export function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [direction, setDirection] = useState<DeviceDirection>("in");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<DeviceCreated | null>(null);
   const [copied, setCopied] = useState(false);
@@ -36,10 +42,11 @@ export function Devices() {
     try {
       const device = await api<DeviceCreated>("/api/admin/devices", {
         method: "POST",
-        body: { name },
+        body: { name, direction },
       });
       setCreated(device);
       setName("");
+      setDirection("in");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cihaz eklenemedi.");
@@ -105,6 +112,17 @@ export function Devices() {
               required
             />
           </div>
+          <div className="field">
+            <label htmlFor="deviceDirection">Yön</label>
+            <select
+              id="deviceDirection"
+              value={direction}
+              onChange={(e) => setDirection(e.target.value as DeviceDirection)}
+            >
+              <option value="in">Giriş</option>
+              <option value="out">Çıkış</option>
+            </select>
+          </div>
           <button type="submit" disabled={busy}>
             {busy ? "Ekleniyor…" : "Cihaz ekle"}
           </button>
@@ -115,9 +133,11 @@ export function Devices() {
           <thead>
             <tr>
               <th>Ad</th>
+              <th>Yön</th>
               <th>Durum</th>
               <th>Son görülme</th>
               <th>Eklenme</th>
+              <th>Uptime (24s)</th>
               <th></th>
             </tr>
           </thead>
@@ -125,6 +145,7 @@ export function Devices() {
             {devices.map((d) => (
               <tr key={d.id}>
                 <td>{d.name}</td>
+                <td>{directionLabels[d.direction]}</td>
                 <td>
                   {d.online ? (
                     <span className="badge ok">Çevrimiçi</span>
@@ -134,6 +155,7 @@ export function Devices() {
                 </td>
                 <td>{fmt(d.lastSeenAt)}</td>
                 <td>{fmt(d.createdAt)}</td>
+                <td>{d.uptime24h.toFixed(1)}%</td>
                 <td>
                   <button
                     type="button"
@@ -147,7 +169,7 @@ export function Devices() {
             ))}
             {devices.length === 0 && !error && (
               <tr>
-                <td colSpan={5}>Kayıtlı cihaz yok.</td>
+                <td colSpan={7}>Kayıtlı cihaz yok.</td>
               </tr>
             )}
           </tbody>

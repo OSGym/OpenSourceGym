@@ -8,6 +8,7 @@ export function Settings() {
   const [lng, setLng] = useState("");
   const [radiusM, setRadiusM] = useState("");
   const [capacity, setCapacity] = useState("");
+  const [autoExitHours, setAutoExitHours] = useState("");
   const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -20,6 +21,7 @@ export function Settings() {
         setRadiusM(String(s.location.radiusM));
       }
       if (s.capacity != null) setCapacity(String(s.capacity));
+      setAutoExitHours(String(s.autoExitHours));
     });
   }, []);
 
@@ -37,6 +39,7 @@ export function Settings() {
               ? { lat: Number(lat), lng: Number(lng), radiusM: Number(radiusM) }
               : null,
           capacity: capacity ? Number(capacity) : null,
+          autoExitHours: Number(autoExitHours),
         },
       });
       setMsg({ kind: "success", text: "Ayarlar kaydedildi." });
@@ -93,14 +96,31 @@ export function Settings() {
             />
           </div>
         </div>
-        <div className="field" style={{ maxWidth: 180 }}>
-          <label htmlFor="capacity">Kapasite (kişi)</label>
-          <input
-            id="capacity"
-            value={capacity}
-            onChange={(e) => setCapacity(e.target.value)}
-            placeholder="80"
-          />
+        <div className="row" style={{ marginBottom: 14 }}>
+          <div className="field" style={{ maxWidth: 180 }}>
+            <label htmlFor="capacity">Kapasite (kişi)</label>
+            <input
+              id="capacity"
+              value={capacity}
+              onChange={(e) => setCapacity(e.target.value)}
+              placeholder="80"
+            />
+          </div>
+          <div className="field" style={{ maxWidth: 260 }}>
+            <label htmlFor="autoExitHours">Otomatik çıkış süresi (saat)</label>
+            <input
+              id="autoExitHours"
+              type="number"
+              min={1}
+              value={autoExitHours}
+              onChange={(e) => setAutoExitHours(e.target.value)}
+              placeholder="12"
+              required
+            />
+            <span className="hint">
+              Çıkış turnikesi yoksa üye bu süre sonunda içeride sayılmaz.
+            </span>
+          </div>
         </div>
         <button type="submit" disabled={busy}>
           {busy ? "Kaydediliyor…" : "Kaydet"}

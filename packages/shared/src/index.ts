@@ -15,6 +15,8 @@ export interface PublicUser {
   phone: string;
   role: Role;
   emailVerified: boolean;
+  /** MFA (iki aşamalı doğrulama) etkin mi — Faz 5 */
+  twoFactorEnabled: boolean;
   createdAt: string;
 }
 
@@ -42,6 +44,8 @@ export interface GymSettings {
     radiusM: number;
   } | null;
   capacity: number | null;
+  /** Çıkış turnikesi yoksa üyenin "içeride" sayılacağı azami süre (saat) — Faz 5 doluluk */
+  autoExitHours: number;
 }
 
 export interface AuditLogEntry {
@@ -70,18 +74,25 @@ export interface QrTokenResponse {
   gatewayOnline: boolean;
 }
 
+/** Turnike yönü: "in" giriş (doluluk +1), "out" çıkış (doluluk -1, abonelik kontrolü atlanır) */
+export type DeviceDirection = "in" | "out";
+
 export interface Device {
   id: string;
   name: string;
+  direction: DeviceDirection;
   online: boolean;
   lastSeenAt: string | null;
   createdAt: string;
+  /** Son 24 saatte çevrimiçi kalma yüzdesi (0-100) — KPI-4 */
+  uptime24h: number;
 }
 
 /** Cihaz oluşturma yanıtı — token yalnızca bu yanıtta bir kez görünür */
 export interface DeviceCreated {
   id: string;
   name: string;
+  direction: DeviceDirection;
   token: string;
 }
 
@@ -119,3 +130,35 @@ export type DeviceServerMessage =
       /** Röle tetikleme süresi (ms) — cihaz bu süre kadar açar */
       openMs?: number;
     };
+
+// ---- Faz 5: MFA / Doluluk / KVKK ----
+
+/** Hassas işlem (rol atama) MFA doğrulama yöntemi */
+export type MfaMethod = "totp" | "otp";
+
+/** Anlık salon doluluğu (US-4) */
+export interface OccupancyResponse {
+  /** İçerideki üye sayısı (giriş turnikesi sayacı, autoExitHours ile eskiyenler düşülür) */
+  inside: number;
+  capacity: number | null;
+  /** inside/capacity oranı (0-1); kapasite tanımsızsa null */
+  ratio: number | null;
+}
+
+/** KVKK hesap silme talebi (panel listesi) */
+export interface DeletionRequest {
+  id: string;
+  userId: string;
+  email: string;
+  name: string;
+  requestedAt: string;
+  status: "pending" | "approved" | "rejected";
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+}
+
+/** Üyenin kendi silme talebi durumu (mobil) */
+export interface MyDeletionRequest {
+  status: "none" | "pending" | "rejected";
+  requestedAt: string | null;
+}
