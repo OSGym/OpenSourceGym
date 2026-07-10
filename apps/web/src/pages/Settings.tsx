@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import type { GymSettings } from "@opengym/shared";
+import type { GymSettings, SharingConfig } from "@opengym/shared";
 import { api } from "../lib/api";
+
+const defaultSharing: SharingConfig = {
+  memberMaxSessions: 2,
+  staffMaxSessions: 5,
+  signalThreshold: 3,
+  signalWindowHours: 24,
+  qrBlockHours: 24,
+};
 
 export function Settings() {
   const [gymName, setGymName] = useState("");
@@ -9,6 +17,7 @@ export function Settings() {
   const [radiusM, setRadiusM] = useState("");
   const [capacity, setCapacity] = useState("");
   const [autoExitHours, setAutoExitHours] = useState("");
+  const [sharing, setSharing] = useState<SharingConfig>(defaultSharing);
   const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -22,6 +31,7 @@ export function Settings() {
       }
       if (s.capacity != null) setCapacity(String(s.capacity));
       setAutoExitHours(String(s.autoExitHours));
+      setSharing(s.sharing);
     });
   }, []);
 
@@ -40,6 +50,7 @@ export function Settings() {
               : null,
           capacity: capacity ? Number(capacity) : null,
           autoExitHours: Number(autoExitHours),
+          sharing,
         },
       });
       setMsg({ kind: "success", text: "Ayarlar kaydedildi." });
@@ -120,6 +131,113 @@ export function Settings() {
             <span className="hint">
               Çıkış turnikesi yoksa üye bu süre sonunda içeride sayılmaz.
             </span>
+          </div>
+        </div>
+        <h2>Hesap paylaşımı tespiti</h2>
+        <div className="row" style={{ marginBottom: 14 }}>
+          <div className="field">
+            <label htmlFor="memberMaxSessions">
+              Üye başına eşzamanlı oturum sınırı
+            </label>
+            <input
+              id="memberMaxSessions"
+              type="number"
+              min={1}
+              max={10}
+              value={sharing.memberMaxSessions}
+              onChange={(e) =>
+                setSharing({
+                  ...sharing,
+                  memberMaxSessions: Number(e.target.value),
+                })
+              }
+              required
+            />
+            <span className="hint">
+              Bu sınır aşıldığında en eski oturum otomatik kapatılır.
+            </span>
+          </div>
+          <div className="field">
+            <label htmlFor="staffMaxSessions">
+              Personel/admin başına eşzamanlı oturum sınırı
+            </label>
+            <input
+              id="staffMaxSessions"
+              type="number"
+              min={1}
+              max={20}
+              value={sharing.staffMaxSessions}
+              onChange={(e) =>
+                setSharing({
+                  ...sharing,
+                  staffMaxSessions: Number(e.target.value),
+                })
+              }
+              required
+            />
+            <span className="hint">
+              Personel ve adminler için eşzamanlı oturum üst sınırı.
+            </span>
+          </div>
+          <div className="field">
+            <label htmlFor="signalThreshold">
+              Otomatik engel için sinyal eşiği
+            </label>
+            <input
+              id="signalThreshold"
+              type="number"
+              min={1}
+              max={20}
+              value={sharing.signalThreshold}
+              onChange={(e) =>
+                setSharing({
+                  ...sharing,
+                  signalThreshold: Number(e.target.value),
+                })
+              }
+              required
+            />
+            <span className="hint">
+              Bu sayıda şüpheli sinyal birikince hesap otomatik engellenir.
+            </span>
+          </div>
+        </div>
+        <div className="row" style={{ marginBottom: 14 }}>
+          <div className="field">
+            <label htmlFor="signalWindowHours">Sinyal penceresi (saat)</label>
+            <input
+              id="signalWindowHours"
+              type="number"
+              min={1}
+              max={168}
+              value={sharing.signalWindowHours}
+              onChange={(e) =>
+                setSharing({
+                  ...sharing,
+                  signalWindowHours: Number(e.target.value),
+                })
+              }
+              required
+            />
+            <span className="hint">Sinyallerin sayıldığı zaman aralığı.</span>
+          </div>
+          <div className="field">
+            <label htmlFor="qrBlockHours">QR engeli süresi (saat)</label>
+            <input
+              id="qrBlockHours"
+              type="number"
+              min={1}
+              max={168}
+              value={sharing.qrBlockHours}
+              onChange={(e) =>
+                setSharing({
+                  ...sharing,
+                  qrBlockHours: Number(e.target.value),
+                })
+              }
+              required
+            />
+            <span className="hint">Otomatik engelin ne kadar süreceği.</span>
           </div>
         </div>
         <button type="submit" disabled={busy}>

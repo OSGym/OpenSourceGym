@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { authClient } from "../lib/auth";
+import { getDeviceFingerprint } from "../lib/fingerprint";
 import { Button, ErrorMsg, Field, styles } from "../ui";
 
 export function Login({
@@ -18,7 +19,12 @@ export function Login({
   async function submit() {
     setBusy(true);
     setError(null);
-    const { error } = await authClient.signIn.email({ email, password });
+    const fp = await getDeviceFingerprint();
+    const { error } = await authClient.signIn.email({
+      email,
+      password,
+      fetchOptions: fp ? { headers: { "X-Device-Fingerprint": fp } } : undefined,
+    });
     setBusy(false);
     if (error) {
       if (error.code === "EMAIL_NOT_VERIFIED") {

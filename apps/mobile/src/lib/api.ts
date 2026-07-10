@@ -1,5 +1,6 @@
 import { API_URL } from "./config";
 import { authClient } from "./auth";
+import { getDeviceFingerprint } from "./fingerprint";
 
 export class ApiError extends Error {
   constructor(
@@ -15,10 +16,12 @@ export async function api<T>(
   path: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<T> {
+  const fp = await getDeviceFingerprint();
   const res = await fetch(`${API_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
       Cookie: authClient.getCookie(),
+      ...(fp ? { "X-Device-Fingerprint": fp } : {}),
       ...(options.body !== undefined
         ? { "Content-Type": "application/json" }
         : {}),

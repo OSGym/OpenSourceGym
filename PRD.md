@@ -171,7 +171,7 @@ OpenGym Backend
 
 - Mobil uygulamada anti-debugging koruması.
 - Konum izni: üyenin gerçekten salonda olduğunun doğrulanması (US-5).
-- Telefon/cihaz sinyalleri: hesabın birden fazla kişi tarafından paylaşılıp paylaşılmadığının tespiti (sinyal seti `TBD`: cihaz kimliği, eş zamanlı oturum, konum tutarsızlığı).
+- Telefon/cihaz sinyalleri: hesabın birden fazla kişi tarafından paylaşılıp paylaşılmadığının tespiti. Sinyal seti: cihaz parmak izi (SHA-256 hash, `X-Device-Fingerprint` header; mobilde `expo-application`/`expo-device`/`expo-crypto` ile hesaplanır), eş zamanlı oturum sınırı (rol bazlı: üye 2, personel/admin 5), parmak izi churn (24 saatlik pencerede ≥3 farklı cihaz), konum tutarsızlığı (120 sn içinde >1 km). Eskalasyon: 24 saatte ≥3 sinyal birikince tüm oturumlar otomatik iptal + QR üretimi 24 saat geçici kilitlenir (`SHARING_BLOCKED`).
 
 **Deneysel — bu sürümde uygulanmayacak:**
 
@@ -196,7 +196,7 @@ OpenGym Backend
 | Risk                          | Etki                                   | Önlem                                                                                        |
 | ----------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------- |
 | WebSocket bağlantı kopması    | Üyeler turnikeden geçemez              | Agent'ta otomatik yeniden bağlanma + backend'de bağlantı durumu izleme; fail-closed davranış |
-| Konum spoofing (sahte GPS)    | Salon dışından turnike tetikleme       | Konum tek başına yeterli sayılmaz; QR token kısa ömürlü olur (`TBD`), v2.0'da ek sinyaller   |
+| Konum spoofing (sahte GPS)    | Salon dışından turnike tetikleme       | Android'de `mocked` bayrağı QR token isteğinde sunucuya gönderiliyor; mock location algılanırsa QR üretimi reddediliyor (`MOCK_LOCATION` hata kodu). iOS'ta bu bayrak desteklenmiyor (bilinen sınırlama). Parmak izi churn ve konum tutarsızlığı sinyalleri tamamlayıcı kontrol sağlıyor; v2.0'da ek sinyaller uygulanmıştır. |
 | SMTP teslimat sorunları       | Üye kaydı/MFA tıkanır                  | Kod yeniden gönderme + teslimat hatalarının panelde görünürlüğü                              |
 | Self-hosted ortam çeşitliliği | Kurulum hataları, destek yükü          | Docker Compose ile standart kurulum, KPI-3 (< 30 dk) hedefi                                  |
 | `admin:admin` varsayılanı     | Kurulum sonrası unutulursa kritik açık | Zorunlu şifre değişimi atlanamaz (US-2); değiştirilmeden hiçbir uç çalışmaz                  |

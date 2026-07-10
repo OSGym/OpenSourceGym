@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { authClient } from "../lib/auth";
+import { getDeviceFingerprint } from "../lib/fingerprint";
 import { Button, ErrorMsg, Field, styles } from "../ui";
 
 export function VerifyOtp({
@@ -27,7 +28,12 @@ export function VerifyOtp({
       return;
     }
     // Doğrulama sonrası otomatik giriş — kayıt akışı kesintisiz tamamlanır
-    const signIn = await authClient.signIn.email({ email, password });
+    const fp = await getDeviceFingerprint();
+    const signIn = await authClient.signIn.email({
+      email,
+      password,
+      fetchOptions: fp ? { headers: { "X-Device-Fingerprint": fp } } : undefined,
+    });
     setBusy(false);
     if (signIn.error) {
       setError("Doğrulama tamam; giriş başarısız. Giriş ekranından deneyin.");

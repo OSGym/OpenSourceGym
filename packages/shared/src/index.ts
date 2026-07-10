@@ -46,6 +46,8 @@ export interface GymSettings {
   capacity: number | null;
   /** Çıkış turnikesi yoksa üyenin "içeride" sayılacağı azami süre (saat) — Faz 5 doluluk */
   autoExitHours: number;
+  /** Hesap paylaşımı tespiti ayarları — Faz 6 */
+  sharing: SharingConfig;
 }
 
 export interface AuditLogEntry {
@@ -64,7 +66,9 @@ export interface AuditLogEntry {
 export type QrRejectCode =
   | "NO_ACTIVE_SUBSCRIPTION"
   | "LOCATION_REQUIRED"
-  | "OUT_OF_RANGE";
+  | "OUT_OF_RANGE"
+  | "MOCK_LOCATION"
+  | "SHARING_BLOCKED";
 
 export interface QrTokenResponse {
   /** Turnikede okutulacak imzalı, kısa ömürlü token (QR içeriği) */
@@ -161,4 +165,26 @@ export interface DeletionRequest {
 export interface MyDeletionRequest {
   status: "none" | "pending" | "rejected";
   requestedAt: string | null;
+}
+
+// ---- Faz 6: Hesap Paylaşımı Tespiti / Anti-Debug / Anti-Spoof ----
+
+/** Hesap paylaşımı şüphesi sinyal türleri */
+export type SharingSignalKind =
+  | "fingerprint-churn"
+  | "location-inconsistency"
+  | "mock-location";
+
+/** Hesap paylaşımı tespiti eşik/pencere ayarları (salon ayarlarında düzenlenebilir) */
+export interface SharingConfig {
+  /** Üye rolü için eşzamanlı oturum üst sınırı */
+  memberMaxSessions: number;
+  /** Personel/admin rolü için eşzamanlı oturum üst sınırı */
+  staffMaxSessions: number;
+  /** Bu sayıda sinyal birikince otomatik engelleme tetiklenir */
+  signalThreshold: number;
+  /** Sinyallerin sayıldığı zaman penceresi (saat) */
+  signalWindowHours: number;
+  /** Otomatik QR engelinin süresi (saat) */
+  qrBlockHours: number;
 }

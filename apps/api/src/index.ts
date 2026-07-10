@@ -7,6 +7,7 @@ import { connectRedis } from "./redis.js";
 import { mongoClient } from "./db.js";
 import { auth } from "./auth.js";
 import { seedInitialAdmin } from "./seed.js";
+import { ensureIndexes } from "./indexes.js";
 import { adminRouter } from "./routes/admin.js";
 import { meRouter } from "./routes/me.js";
 import { devicesRouter } from "./routes/devices.js";
@@ -37,6 +38,7 @@ const server = createServer(app);
 
 async function main() {
   await mongoClient.connect();
+  await ensureIndexes();
   await connectRedis();
   await seedInitialAdmin();
   attachDeviceGateway(server);
