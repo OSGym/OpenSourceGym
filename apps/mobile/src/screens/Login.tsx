@@ -7,9 +7,11 @@ import { Button, ErrorMsg, Field, styles } from "../ui";
 export function Login({
   onRegister,
   onNeedsVerification,
+  onForgot,
 }: {
   onRegister: () => void;
   onNeedsVerification: (email: string, password: string) => void;
+  onForgot: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -66,6 +68,9 @@ export function Login({
         autoComplete="current-password"
       />
       <Button title="Giriş yap" onPress={submit} busy={busy} />
+      <Pressable onPress={onForgot}>
+        <Text style={styles.link}>Şifremi unuttum</Text>
+      </Pressable>
       <Pressable onPress={onRegister}>
         <Text style={styles.link}>Hesabın yok mu? Kayıt ol</Text>
       </Pressable>

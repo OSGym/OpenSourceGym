@@ -8,6 +8,7 @@ import { redis } from "./redis.js";
 import { sendMail } from "./mailer.js";
 import { env } from "./env.js";
 import { enforceSessionPolicy } from "./sharing.js";
+import { revokeUserSessions } from "./sessions.js";
 
 export const auth = betterAuth({
   baseURL: env.betterAuthUrl,
@@ -39,6 +40,19 @@ export const auth = betterAuth({
     enabled: true,
     requireEmailVerification: true,
     minPasswordLength: 8,
+    revokeSessionsOnPasswordReset: true,
+    // BetterAuth'un kendi revokeSessionsOnPasswordReset'i yalnızca Redis
+    // "active-sessions-<userId>" listesindeki token'ları siler; Faz 6'nın
+    // enforceSessionPolicy eviction'ı (sharing.ts) o listeyi hayatta kalan
+    // oturumları yeniden yazmadan tamamen siler, bu yüzden liste zaten
+    // boşalmış kullanıcılarda hayatta kalan Redis oturum blob'ları asla
+    // silinmez ve findSession Mongo'ya hiç bakmadan onları geçerli kabul
+    // eder. revokeUserSessions() token'ları Mongo'dan (referans doğruluk)
+    // okuduğundan bu listeye bağımlı değildir. mustChangePassword'a
+    // dokunmaz — yalnızca oturum iptali için eklenmiştir.
+    onPasswordReset: async ({ user }) => {
+      await revokeUserSessions(user.id);
+    },
   },
 
   user: {
@@ -134,6 +148,8 @@ export const auth = betterAuth({
       sendVerificationOnSignUp: true,
       otpLength: 6,
       expiresIn: 600,
+      storeOTP: "hashed",
+      resendStrategy: "rotate",
       async sendVerificationOTP({ email, otp, type }) {
         const subjects: Record<string, string> = {
           "email-verification": "OpenGym e-posta doğrulama kodunuz",
@@ -174,6 +190,8 @@ export const auth = betterAuth({
       "/sign-in/email": { window: 60, max: 5 },
       "/email-otp/send-verification-otp": { window: 60, max: 3 },
       "/email-otp/verify-email": { window: 60, max: 5 },
+      "/email-otp/request-password-reset": { window: 60, max: 3 },
+      "/email-otp/reset-password": { window: 60, max: 5 },
       "/two-factor/send-otp": { window: 60, max: 3 },
       "/two-factor/verify-totp": { window: 60, max: 5 },
       "/two-factor/verify-otp": { window: 60, max: 5 },
