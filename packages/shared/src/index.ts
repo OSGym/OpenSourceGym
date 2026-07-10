@@ -30,6 +30,14 @@ export interface Subscription {
   createdAt: string;
 }
 
+export type SubscriptionMonths = 1 | 3 | 6 | 12;
+
+export interface CreateSubscriptionRequest {
+  userId: string;
+  months: SubscriptionMonths;
+  note?: string;
+}
+
 export interface MySubscription {
   active: boolean;
   endsAt: string | null;
@@ -102,10 +110,7 @@ export interface DeviceCreated {
 
 /** Tarama anında geçişin reddedilme nedenleri */
 export type EntryDenyReason =
-  | "INVALID_TOKEN"
-  | "EXPIRED"
-  | "REPLAY"
-  | "NO_ACTIVE_SUBSCRIPTION";
+  "INVALID_TOKEN" | "EXPIRED" | "REPLAY" | "NO_ACTIVE_SUBSCRIPTION";
 
 export interface EntryEvent {
   id: string;
@@ -171,9 +176,7 @@ export interface MyDeletionRequest {
 
 /** Hesap paylaşımı şüphesi sinyal türleri */
 export type SharingSignalKind =
-  | "fingerprint-churn"
-  | "location-inconsistency"
-  | "mock-location";
+  "fingerprint-churn" | "location-inconsistency" | "mock-location";
 
 /** Hesap paylaşımı tespiti eşik/pencere ayarları (salon ayarlarında düzenlenebilir) */
 export interface SharingConfig {

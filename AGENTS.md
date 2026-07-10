@@ -8,12 +8,12 @@ Self-hosted, single-tenant gym automation: member self-registration, subscriptio
 
 pnpm 11 + Turborepo monorepo, Node >= 22.
 
-| Package | Path | What it is |
-|---|---|---|
-| `@opengym/api` | `apps/api` | Express 5 REST API + BetterAuth server (ESM) |
-| `@opengym/web` | `apps/web` | Admin/staff panel — React 19 + Vite 7 + react-router 7 SPA |
-| `@opengym/mobile` | `apps/mobile` | Member app — Expo SDK 57 / React Native 0.86 |
-| `@opengym/shared` | `packages/shared` | Hand-written shared TS types only (no runtime code) |
+| Package           | Path              | What it is                                                 |
+| ----------------- | ----------------- | ---------------------------------------------------------- |
+| `@opengym/api`    | `apps/api`        | Express 5 REST API + BetterAuth server (ESM)               |
+| `@opengym/web`    | `apps/web`        | Admin/staff panel — React 19 + Vite 7 + react-router 7 SPA |
+| `@opengym/mobile` | `apps/mobile`     | Member app — Expo SDK 57 / React Native 0.86               |
+| `@opengym/shared` | `packages/shared` | Hand-written shared TS types only (no runtime code)        |
 
 ## Commands
 
@@ -22,6 +22,7 @@ pnpm install
 pnpm dev          # turbo: api (tsx watch, :3000) + web (vite, :5173); mobile has no dev script
 pnpm build        # turbo: shared first (^build), then api + web; mobile skipped (no build script)
 pnpm lint         # single flat eslint config at repo root
+pnpm test         # Node built-in test runner (API tests run through tsx)
 pnpm typecheck
 pnpm format       # prettier --write .
 
@@ -34,40 +35,52 @@ docker compose up mongo redis         # infra only, then run api/web via pnpm de
 
 - API needs Mongo and Redis running. Env: copy `.env.example` to `.env`; with SMTP unset, OTP emails print to the api console.
 - `@opengym/shared` is consumed from its compiled `dist/`. Turbo's `^build` handles ordering, but after editing shared types run `pnpm --filter @opengym/shared build` so app typechecks see the change.
-- No test runner is set up anywhere yet (no turbo `test` task). CI (`.github/workflows/ci.yml`) runs lint → typecheck → build on Node 22.
+- API tests use Node's built-in test runner through `tsx`. CI (`.github/workflows/ci.yml`) runs lint → typecheck → test → build on Node 22.
 
 ## Architecture
 
 ### Auth (BetterAuth — `apps/api/src/auth.ts`)
+
 - Email+password with required email verification via 6-digit OTP (`emailOTP` plugin); `expo()` plugin for the mobile deep-link scheme `opengym://`.
 - Mongo adapter + Redis secondary storage (sessions) + Redis-backed rate limiting with per-route rules (signup, signin, OTP send/verify).
-- Custom user fields: `firstName`, `lastName`, `phone`, `role` (`admin|staff|member`, `input: false`), `mustChangePassword`, KVKK/privacy consent flags. The `user.create.before` hook rejects signup without KVKK + privacy consent and stamps consent timestamps.
+- Custom user fields: `firstName`, `lastName`, normalized public `phone`, internal/non-returned `phoneE164`, `role` (`admin|staff|member`, `input: false`), `mustChangePassword`, KVKK/privacy consent flags. The `user.create.before` hook rejects signup without KVKK + privacy consent, normalizes/uniquifies phones, and stamps consent timestamps.
 - The BetterAuth catch-all is mounted **before** `express.json()` in `apps/api/src/index.ts` — moving it after breaks auth request bodies.
 - First boot seeds `admin@opengym.local` / `admin1234` with `mustChangePassword: true` (`apps/api/src/seed.ts`).
 
 ### Authorization (`apps/api/src/middleware.ts`)
+
 `requireRole(...roles)` validates the session, then **re-reads the user from Mongo on every request** so role changes and `mustChangePassword` are never stale behind the Redis session cache. Users with `mustChangePassword` are blocked from everything except `POST /api/admin/initial-password` and `GET /api/me/profile`. New protected routes must use this middleware and preserve the re-read pattern.
 
-### Data (native MongoDB driver — no ORM, no migrations)
+### Data (native MongoDB driver — no ORM or schema-migration framework)
+
 `apps/api/src/db.ts` exposes the `db` handle. Collections:
+
+One-time startup data repairs are idempotent and marker-controlled; they are
+not schema migrations.
+
 - `user` — BetterAuth-managed, extended with the custom fields above
 - `subscriptions` — membership periods `{ userId, startsAt, endsAt, note, createdBy, createdAt }`
+- `phone_identity_conflicts` — unresolved legacy duplicate phones; resolved records are deleted
+- `migration_markers` — idempotent one-time data repair markers
 - `settings` — singleton gym config doc, `_id: "gym"`
 - `audit_logs` — written via `logAudit()` (`apps/api/src/audit.ts`); **every sensitive admin mutation must call it**
 
 ### API surface
+
 - `/api/auth/*` — BetterAuth
-- `/api/admin/*` (`apps/api/src/routes/admin.ts`) — staff/admin: user search by phone, role assignment, subscriptions, settings, audit list
+- `/api/admin/*` (`apps/api/src/routes/admin.ts`) — staff/admin: unified user search (`q`: phone/e-mail/name), role assignment, sequential subscriptions, settings, audit list
 - `/api/me/*` (`apps/api/src/routes/me.ts`) — own profile and subscription
 - `GET /health`
 
 Request bodies are validated with zod. No OpenAPI/codegen: clients use hand-rolled `api<T>()` fetch wrappers and share response types via `@opengym/shared`.
 
 ### Clients
+
 - **web**: cookie session (`credentials: "include"`), Vite dev proxy `/api → localhost:3000`. `src/App.tsx` gates by role (members are told to use the mobile app) and forces the ChangePassword screen when `mustChangePassword` is set.
 - **mobile**: better-auth expo client with SecureStore; its `api()` wrapper sends `Cookie: authClient.getCookie()` manually. Manual screen state machine in `App.tsx` (`login | register | verify | home`), no navigation library.
 
 ## Conventions & gotchas
+
 - `api` and `shared` are ESM (`"type": "module"`) — relative imports need `.js` extensions. `web` uses bundler resolution (no extensions). `mobile` is not ESM.
 - User-facing strings, code comments, and product docs are Turkish; identifiers and infra docs are English.
 - TS strict + `noUncheckedIndexedAccess` via `tsconfig.base.json`. `mobile` does not extend the base (it extends `expo/tsconfig.base`) and pins its own newer TypeScript.

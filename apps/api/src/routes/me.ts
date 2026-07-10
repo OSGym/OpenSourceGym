@@ -14,7 +14,10 @@ import { redis } from "../redis.js";
 import { requireRole } from "../middleware.js";
 import { distanceMeters } from "../geo.js";
 import { issueQrToken } from "../qr.js";
-import { hasActiveSubscription } from "../subscriptions.js";
+import {
+  getSubscriptionSummary,
+  hasActiveSubscription,
+} from "../subscriptions.js";
 import { isAnyDeviceOnline } from "../gateway.js";
 import { getOccupancy } from "../occupancy.js";
 import { logAudit } from "../audit.js";
@@ -36,23 +39,7 @@ meRouter.get(
   "/subscription",
   requireRole("admin", "staff", "member"),
   async (req, res) => {
-    const now = new Date();
-    const active = await db
-      .collection("subscriptions")
-      .find({ userId: new ObjectId(req.user!.id), endsAt: { $gte: now } })
-      .sort({ endsAt: -1 })
-      .limit(1)
-      .next();
-    const body: MySubscription = active
-      ? {
-          active: active.startsAt <= now,
-          endsAt: active.endsAt.toISOString(),
-          remainingDays: Math.max(
-            0,
-            Math.ceil((active.endsAt.getTime() - now.getTime()) / 86_400_000),
-          ),
-        }
-      : { active: false, endsAt: null, remainingDays: 0 };
+    const body: MySubscription = await getSubscriptionSummary(req.user!.id);
     res.json(body);
   },
 );
@@ -259,7 +246,9 @@ meRouter.post(
       .collection("deletion_requests")
       .findOne({ userId, status: "pending" });
     if (existingPending) {
-      res.status(409).json({ message: "Zaten bekleyen bir silme talebiniz var." });
+      res
+        .status(409)
+        .json({ message: "Zaten bekleyen bir silme talebiniz var." });
       return;
     }
     await db.collection("deletion_requests").insertOne({
@@ -286,7 +275,9 @@ meRouter.delete(
       status: "pending",
     });
     if (result.deletedCount === 0) {
-      res.status(404).json({ message: "Bekleyen bir silme talebi bulunamadı." });
+      res
+        .status(404)
+        .json({ message: "Bekleyen bir silme talebi bulunamadı." });
       return;
     }
     await logAudit(req.user!, "kvkk-deletion-cancelled");

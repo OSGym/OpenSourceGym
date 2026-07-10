@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { authClient } from "./src/lib/auth";
@@ -47,10 +47,24 @@ export default function App() {
   const [integrity, setIntegrity] = useState<DeviceIntegrityResult | null>(
     null,
   );
+  const hadSession = useRef(false);
+
+  const resetToLogin = useCallback(() => {
+    setScreen({ name: "login" });
+    setHomeScreen("home");
+  }, []);
 
   useEffect(() => {
-    if (!session) setHomeScreen("home");
-  }, [session]);
+    if (session) {
+      hadSession.current = true;
+      return;
+    }
+
+    if (hadSession.current) {
+      hadSession.current = false;
+      resetToLogin();
+    }
+  }, [resetToLogin, session]);
 
   useEffect(() => {
     void checkDeviceIntegrity().then(setIntegrity);
@@ -98,7 +112,8 @@ export default function App() {
       <VerifyOtp
         email={screen.email}
         password={screen.password}
-        onBack={() => setScreen({ name: "login" })}
+        onBack={resetToLogin}
+        onVerified={resetToLogin}
       />
     );
   } else if (screen.name === "forgot") {

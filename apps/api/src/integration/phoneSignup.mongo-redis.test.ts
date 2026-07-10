@@ -1,0 +1,177 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import test from "node:test";
+
+const mongoUri = process.env.TEST_MONGODB_URI;
+const redisUri = process.env.TEST_REDIS_URL;
+
+test(
+  "kayıt hook'u telefonu normalize eder ve farklı yazılmış mükerreri ayırır",
+  {
+    skip:
+      mongoUri && redisUri
+        ? false
+        : "TEST_MONGODB_URI ve TEST_REDIS_URL tanımlı değil",
+  },
+  async () => {
+    const databaseName = `opengym_signup_${randomUUID().replaceAll("-", "")}`;
+    const isolatedRedisUrl = new URL(redisUri!);
+    isolatedRedisUrl.pathname = "/15";
+    process.env.MONGODB_URI = `${mongoUri!}/${databaseName}`;
+    process.env.REDIS_URL = isolatedRedisUrl.toString();
+    process.env.BETTER_AUTH_URL = "http://localhost:3000";
+    process.env.BETTER_AUTH_SECRET =
+      "phone-signup-integration-test-secret-at-least-32-characters";
+
+    const [
+      { auth },
+      { db, mongoClient },
+      { connectRedis, redis },
+      { backfillLegacyUserPhones },
+      { ensureIndexes },
+      { seedInitialAdmin },
+    ] = await Promise.all([
+      import("../auth.js"),
+      import("../db.js"),
+      import("../redis.js"),
+      import("../phoneBackfill.js"),
+      import("../indexes.js"),
+      import("../seed.js"),
+    ]);
+
+    async function signUp(
+      email: string,
+      phone: string,
+    ): Promise<{
+      status: number;
+      body: Record<string, unknown> & { code?: string; message?: string };
+    }> {
+      const response = await auth.handler(
+        new Request("http://localhost:3000/api/auth/sign-up/email", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://localhost:5173",
+          },
+          body: JSON.stringify({
+            name: "Telefon Testi",
+            firstName: "Telefon",
+            lastName: "Testi",
+            email,
+            password: "test-password-1234",
+            phone,
+            kvkkAccepted: true,
+            privacyAccepted: true,
+          }),
+        }),
+      );
+      return {
+        status: response.status,
+        body: (await response.json()) as Record<string, unknown> & {
+          code?: string;
+          message?: string;
+        },
+      };
+    }
+
+    try {
+      await mongoClient.connect();
+      await connectRedis();
+      await redis.flushDb();
+      await db.collection("user").insertMany([
+        {
+          email: "legacy-phone-a@example.com",
+          phone: "534 123 45 67",
+        },
+        {
+          email: "legacy-phone-b@example.com",
+          phone: "+90 534 123 45 67",
+        },
+      ]);
+      await backfillLegacyUserPhones();
+      await ensureIndexes();
+
+      const first = await signUp("phone-a@example.com", "532 123 45 67");
+      assert.equal(first.status, 200);
+      assert.doesNotMatch(JSON.stringify(first.body), /phoneE164/);
+      assert.equal(
+        (first.body.user as { phone?: string } | undefined)?.phone,
+        "+905321234567",
+      );
+      const stored = await db
+        .collection("user")
+        .findOne(
+          { email: "phone-a@example.com" },
+          { projection: { phone: 1, phoneE164: 1 } },
+        );
+      assert.equal(stored?.phone, "+905321234567");
+      assert.equal(stored?.phoneE164, "+905321234567");
+
+      const duplicate = await signUp(
+        "phone-b@example.com",
+        "+90 532 123 45 67",
+      );
+      assert.equal(duplicate.status, 400);
+      assert.equal(duplicate.body.code, "PHONE_ALREADY_EXISTS");
+      assert.match(duplicate.body.message ?? "", /telefon numarası/i);
+      assert.equal(
+        await db.collection("user").countDocuments({
+          phoneE164: "+905321234567",
+        }),
+        1,
+      );
+
+      await redis.flushDb();
+      const concurrent = await Promise.all([
+        signUp("phone-c@example.com", "533 123 45 67"),
+        signUp("phone-d@example.com", "+90 533 123 45 67"),
+      ]);
+      assert.deepEqual(
+        concurrent.map((result) => result.status).sort(),
+        [200, 400],
+      );
+      assert.equal(
+        concurrent.find((result) => result.status === 400)?.body.code,
+        "PHONE_ALREADY_EXISTS",
+      );
+      assert.equal(
+        await db.collection("user").countDocuments({
+          phoneE164: "+905331234567",
+        }),
+        1,
+      );
+
+      await redis.flushDb();
+      const legacyConflict = await signUp(
+        "legacy-phone-c@example.com",
+        "(0534) 123-45-67",
+      );
+      assert.equal(legacyConflict.status, 400);
+      assert.equal(legacyConflict.body.code, "PHONE_ALREADY_EXISTS");
+
+      await redis.flushDb();
+      const publicSeedAttempt = await signUp("admin@opengym.local", "-");
+      assert.equal(publicSeedAttempt.status, 400);
+      assert.equal(publicSeedAttempt.body.code, "INVALID_PHONE_NUMBER");
+      assert.match(
+        publicSeedAttempt.body.message ?? "",
+        /Geçerli bir telefon numarası/,
+      );
+
+      await seedInitialAdmin();
+      const initialAdmin = await db.collection("user").findOne({
+        email: "admin@opengym.local",
+      });
+      assert.equal(initialAdmin?.phone, "-");
+      assert.equal(initialAdmin?.phoneE164, undefined);
+      assert.equal(initialAdmin?.role, "admin");
+    } finally {
+      await db.dropDatabase().catch(() => undefined);
+      if (redis.isOpen) {
+        await redis.flushDb().catch(() => undefined);
+        await redis.quit();
+      }
+      await mongoClient.close();
+    }
+  },
+);
