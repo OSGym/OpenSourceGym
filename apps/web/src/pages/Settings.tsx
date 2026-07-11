@@ -20,6 +20,10 @@ export function Settings() {
   const [sharing, setSharing] = useState<SharingConfig>(defaultSharing);
   const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Mevcut ayarlar yüklenmeden kaydetmeye izin verilmez — aksi halde erken
+  // bir kayıt, sunucudaki yapılandırılmış değerleri form varsayılanlarıyla
+  // sessizce ezer
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     void api<GymSettings>("/api/admin/settings").then((s) => {
@@ -32,6 +36,7 @@ export function Settings() {
       if (s.capacity != null) setCapacity(String(s.capacity));
       setAutoExitHours(String(s.autoExitHours));
       setSharing(s.sharing);
+      setLoaded(true);
     });
   }, []);
 
@@ -240,7 +245,7 @@ export function Settings() {
             <span className="hint">Otomatik engelin ne kadar süreceği.</span>
           </div>
         </div>
-        <button type="submit" disabled={busy}>
+        <button type="submit" disabled={busy || !loaded}>
           {busy ? "Kaydediliyor…" : "Kaydet"}
         </button>
       </form>

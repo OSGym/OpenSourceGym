@@ -86,6 +86,21 @@ meRouter.post(
       return;
     }
 
+    // Faz 6: expo-location "mocked" bayrağı true ise sahte konum uygulaması
+    // tespit edilmiştir — QR üretimi reddedilir (giriş etkilenmez). Bu kontrol
+    // salon konumu yapılandırılmamış olsa bile çalışır ve konum geçmişi
+    // (QR_LOC_KEY) yazılmadan ÖNCE yapılır: sahte koordinatlar konum
+    // tutarsızlığı sinyalini beslememeli
+    if (mocked === true) {
+      await recordSharingSignal(req.user!, "mock-location", { lat, lng });
+      res.status(403).json({
+        code: "MOCK_LOCATION",
+        message:
+          "Sahte konum tespit edildi. Konum taklit uygulamalarını kapatıp tekrar deneyin.",
+      });
+      return;
+    }
+
     if (!(await hasActiveSubscription(req.user!.id))) {
       res.status(403).json({
         code: "NO_ACTIVE_SUBSCRIPTION",
@@ -148,17 +163,6 @@ meRouter.post(
           code: "LOCATION_REQUIRED",
           message:
             "Konum bilgisi alınamadı. Konum servisini açıp tekrar deneyin.",
-        });
-        return;
-      }
-      // Faz 6: expo-location "mocked" bayrağı true ise sahte konum uygulaması
-      // tespit edilmiştir — QR üretimi reddedilir (giriş etkilenmez)
-      if (mocked === true) {
-        await recordSharingSignal(req.user!, "mock-location", { lat, lng });
-        res.status(403).json({
-          code: "MOCK_LOCATION",
-          message:
-            "Sahte konum tespit edildi. Konum taklit uygulamalarını kapatıp tekrar deneyin.",
         });
         return;
       }

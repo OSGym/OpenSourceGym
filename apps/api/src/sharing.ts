@@ -24,7 +24,8 @@ export const QR_LOC_KEY = (userId: string): string => `og:qr-loc:${userId}`;
 // varsayılanların üzerine sığ (shallow) olarak birleştirilir
 export async function getSharingConfig(): Promise<SharingConfig> {
   const doc = await db.collection("settings").findOne({ _id: "gym" as never });
-  const overrides = (doc as { sharing?: Partial<SharingConfig> } | null)?.sharing ?? {};
+  const overrides =
+    (doc as { sharing?: Partial<SharingConfig> } | null)?.sharing ?? {};
   return { ...SHARING_DEFAULTS, ...overrides };
 }
 
@@ -110,7 +111,8 @@ export async function enforceSessionPolicy(session: {
       .findOne({ _id: new ObjectId(session.userId) });
     if (!userDoc) return;
     const role = (userDoc.role as string | undefined) ?? "member";
-    const cap = role === "member" ? cfg.memberMaxSessions : cfg.staffMaxSessions;
+    const cap =
+      role === "member" ? cfg.memberMaxSessions : cfg.staffMaxSessions;
 
     const sessions = await db
       .collection("session")
@@ -126,9 +128,7 @@ export async function enforceSessionPolicy(session: {
     const distinctFingerprints = new Set(
       sessions
         .map((s) => s.deviceFingerprint as unknown)
-        .filter(
-          (fp): fp is string => typeof fp === "string" && fp.length > 0,
-        ),
+        .filter((fp): fp is string => typeof fp === "string" && fp.length > 0),
     );
     if (distinctFingerprints.size > cap) {
       const churnKey = `og:fp-churn:${session.userId}`;
@@ -154,7 +154,35 @@ export async function enforceSessionPolicy(session: {
         }
       }
       await db.collection("session").deleteMany({ _id: { $in: excessIds } });
-      await redis.del(`active-sessions-${session.userId}`).catch(console.error);
+
+      // "active-sessions-<userId>" listesi hayatta kalan oturumlarla YENİDEN
+      // YAZILIR, silinmez: BetterAuth'un kendi oturum yönetimi (listSessions,
+      // deleteUserSessions, revokeSessionsOnPasswordReset) bu listeyi referans
+      // alır — listeyi tamamen silmek hayatta kalan oturumların Redis
+      // kayıtlarını BetterAuth için görünmez (öksüz) bırakır. Girdi biçimi
+      // BetterAuth internal-adapter'ıyla birebir aynıdır:
+      // [{token, expiresAt(ms)}], expiresAt'e göre artan sıralı, anahtar
+      // TTL'i en geç dolan oturuma göre
+      const now = Date.now();
+      const survivors = sessions
+        .slice(0, cap)
+        .map((doc) => ({
+          token: String(doc.token ?? ""),
+          expiresAt:
+            doc.expiresAt instanceof Date ? doc.expiresAt.getTime() : 0,
+        }))
+        .filter((entry) => entry.token && entry.expiresAt > now)
+        .sort((a, b) => a.expiresAt - b.expiresAt);
+      const listKey = `active-sessions-${session.userId}`;
+      if (survivors.length > 0) {
+        const lastSurvivor = survivors[survivors.length - 1]!;
+        const ttlSeconds = Math.floor((lastSurvivor.expiresAt - now) / 1000);
+        await redis
+          .set(listKey, JSON.stringify(survivors), { EX: ttlSeconds })
+          .catch(console.error);
+      } else {
+        await redis.del(listKey).catch(console.error);
+      }
     }
   } catch (err) {
     console.error("enforceSessionPolicy başarısız oldu:", err);

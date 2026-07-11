@@ -36,12 +36,16 @@ async function computeFingerprint(): Promise<string | null> {
 
 /**
  * Cihaza özgü, geri döndürülemez bir parmak izi (SHA-256 hex) üretir.
- * Uygulama oturumu boyunca bir kez hesaplanır ve önbelleğe alınır.
+ * Başarılı sonuç uygulama oturumu boyunca önbelleğe alınır; `null` (geçici
+ * hata, izin vb.) önbelleğe ALINMAZ — sonraki çağrı yeniden dener.
  * Hata durumunda `null` döner (fail-open) — çağıranlar bunu opsiyonel kabul etmeli.
  */
 export function getDeviceFingerprint(): Promise<string | null> {
   if (!fingerprintPromise) {
-    fingerprintPromise = computeFingerprint();
+    fingerprintPromise = computeFingerprint().then((fp) => {
+      if (fp === null) fingerprintPromise = null;
+      return fp;
+    });
   }
   return fingerprintPromise;
 }
