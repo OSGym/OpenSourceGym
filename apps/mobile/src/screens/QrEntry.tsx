@@ -40,6 +40,7 @@ export function QrEntry({ onBack }: { onBack: () => void }) {
     try {
       let lat: number | undefined;
       let lng: number | undefined;
+      let mocked: boolean | undefined;
       try {
         const { granted } = await Location.requestForegroundPermissionsAsync();
         if (granted) {
@@ -48,12 +49,14 @@ export function QrEntry({ onBack }: { onBack: () => void }) {
           });
           lat = pos.coords.latitude;
           lng = pos.coords.longitude;
+          mocked = pos.mocked === true;
         }
       } catch {
         // Konum alınamadı — sunucu konumsuz devam edilip edilemeyeceğine karar verir.
       }
 
-      const body = lat !== undefined && lng !== undefined ? { lat, lng } : {};
+      const body =
+        lat !== undefined && lng !== undefined ? { lat, lng, mocked } : {};
       const res = await api<QrTokenResponse>("/api/me/qr-token", {
         method: "POST",
         body,
@@ -112,6 +115,17 @@ export function QrEntry({ onBack }: { onBack: () => void }) {
           {error.code === "LOCATION_REQUIRED" && (
             <Text style={qr.hint}>
               Uygulamaya konum izni vermeniz gerekebilir.
+            </Text>
+          )}
+          {error.code === "MOCK_LOCATION" && (
+            <Text style={qr.hint}>
+              Sahte konum uygulamasını (mock location) kapatıp tekrar deneyin.
+            </Text>
+          )}
+          {error.code === "SHARING_BLOCKED" && (
+            <Text style={qr.hint}>
+              Hesap paylaşımı şüphesi nedeniyle geçici engel. Sorun olduğunu
+              düşünüyorsanız resepsiyona başvurun.
             </Text>
           )}
           <Button title="Tekrar dene" onPress={() => void load()} />

@@ -15,6 +15,8 @@ import { redis } from "../redis.js";
 import { logAudit } from "../audit.js";
 import { requireRole } from "../middleware.js";
 import { markOutside } from "../occupancy.js";
+import { revokeUserSessions } from "../sessions.js";
+import { SHARING_DEFAULTS } from "../sharing.js";
 
 export const adminRouter: Router = Router();
 
@@ -262,8 +264,17 @@ adminRouter.get("/settings", requireRole("admin"), async (_req, res) => {
     location: doc?.location ?? null,
     capacity: doc?.capacity ?? null,
     autoExitHours: doc?.autoExitHours ?? 4,
+    sharing: { ...SHARING_DEFAULTS, ...(doc?.sharing ?? {}) },
   };
   res.json(settings);
+});
+
+const sharingSchema = z.object({
+  memberMaxSessions: z.number().int().min(1).max(10),
+  staffMaxSessions: z.number().int().min(1).max(20),
+  signalThreshold: z.number().int().min(1).max(20),
+  signalWindowHours: z.number().int().min(1).max(168),
+  qrBlockHours: z.number().int().min(1).max(168),
 });
 
 adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
@@ -302,21 +313,33 @@ adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
     res.status(400).json({ message: "Geçersiz otomatik çıkış süresi." });
     return;
   }
+
+  // Faz 6: paylaşım tespiti ayarları yalnızca istek gövdesinde mevcutsa
+  // güncellenir — mevcut ayarlanmış değerleri sessizce ezmemesi kritiktir
+  const setDoc: Record<string, unknown> = {
+    gymName: gymName.trim(),
+    location: loc,
+    capacity: cap,
+    autoExitHours: autoExit,
+  };
+  if (req.body?.sharing !== undefined) {
+    const parsedSharing = sharingSchema.safeParse(req.body.sharing);
+    if (!parsedSharing.success) {
+      res.status(400).json({ message: "Geçersiz paylaşım tespiti ayarları." });
+      return;
+    }
+    setDoc.sharing = parsedSharing.data;
+  }
+
   await db.collection("settings").updateOne(
     { _id: "gym" as never },
-    {
-      $set: {
-        gymName: gymName.trim(),
-        location: loc,
-        capacity: cap,
-        autoExitHours: autoExit,
-      },
-    },
+    { $set: setDoc },
     { upsert: true },
   );
   await logAudit(req.user!, "settings-updated", undefined, {
     gymName: gymName.trim(),
     autoExitHours: autoExit,
+    ...(setDoc.sharing !== undefined ? { sharing: setDoc.sharing } : {}),
   });
   res.json({ ok: true });
 });
@@ -413,25 +436,12 @@ adminRouter.post(
     const targetId = request.userId as ObjectId;
     const targetIdStr = targetId.toString();
 
-    // Redis'te önbelleğe alınmış BetterAuth oturumları (secondary storage,
-    // anahtar = oturum token'ı) TTL beklemeden açıkça silinir; uygulama
+    // Kullanıcının tüm oturumları (Redis + Mongo) iptal edilir; uygulama
     // rotaları zaten middleware'in Mongo re-read'iyle 401'e düşer
-    const sessionDocs = await db
-      .collection("session")
-      .find({ userId: targetId })
-      .project({ token: 1 })
-      .toArray();
-    const sessionTokens = sessionDocs
-      .map((s) => String(s.token ?? ""))
-      .filter(Boolean);
-    if (sessionTokens.length > 0) {
-      await redis.del(sessionTokens).catch(console.error);
-    }
-    await redis.del(`active-sessions-${targetIdStr}`).catch(console.error);
+    await revokeUserSessions(targetIdStr);
 
     await db.collection("user").deleteOne({ _id: targetId });
     await db.collection("account").deleteMany({ userId: targetId });
-    await db.collection("session").deleteMany({ userId: targetId });
     await db.collection("subscriptions").deleteMany({ userId: targetId });
     await db.collection("twoFactor").deleteMany({ userId: targetId });
     await markOutside(targetIdStr);

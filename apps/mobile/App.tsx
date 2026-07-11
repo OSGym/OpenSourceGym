@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { authClient } from "./src/lib/auth";
+import {
+  checkDeviceIntegrity,
+  type DeviceIntegrityResult,
+} from "./src/lib/deviceIntegrity";
 import { colors } from "./src/theme";
+import { Button, styles } from "./src/ui";
 import { Login } from "./src/screens/Login";
 import { Register } from "./src/screens/Register";
 import { VerifyOtp } from "./src/screens/VerifyOtp";
@@ -16,14 +21,36 @@ type Screen =
 
 type HomeSubScreen = "home" | "qr";
 
+function DeviceBlocked({ onBack }: { onBack: () => void }) {
+  return (
+    <View style={styles.screen}>
+      <Text style={styles.brand}>
+        Open<Text style={styles.brandAccent}>Gym</Text>
+      </Text>
+      <Text style={styles.error}>
+        Cihazınızda güvenlik riski tespit edildi (root/jailbreak veya hata
+        ayıklama). Güvenlik nedeniyle QR ile giriş bu cihazda kullanılamaz.
+      </Text>
+      <Button title="Geri" ghost onPress={onBack} />
+    </View>
+  );
+}
+
 export default function App() {
   const { data: session, isPending } = authClient.useSession();
   const [screen, setScreen] = useState<Screen>({ name: "login" });
   const [homeScreen, setHomeScreen] = useState<HomeSubScreen>("home");
+  const [integrity, setIntegrity] = useState<DeviceIntegrityResult | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!session) setHomeScreen("home");
   }, [session]);
+
+  useEffect(() => {
+    void checkDeviceIntegrity().then(setIntegrity);
+  }, []);
 
   let body: React.ReactNode;
   if (isPending) {
@@ -42,7 +69,11 @@ export default function App() {
   } else if (session) {
     body =
       homeScreen === "qr" ? (
-        <QrEntry onBack={() => setHomeScreen("home")} />
+        integrity?.compromised ? (
+          <DeviceBlocked onBack={() => setHomeScreen("home")} />
+        ) : (
+          <QrEntry onBack={() => setHomeScreen("home")} />
+        )
       ) : (
         <Home
           userName={session.user.name}

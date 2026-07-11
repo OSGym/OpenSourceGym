@@ -7,6 +7,7 @@ import { db } from "./db.js";
 import { redis } from "./redis.js";
 import { sendMail } from "./mailer.js";
 import { env } from "./env.js";
+import { enforceSessionPolicy } from "./sharing.js";
 
 export const auth = betterAuth({
   baseURL: env.betterAuthUrl,
@@ -59,6 +60,18 @@ export const auth = betterAuth({
     },
   },
 
+  session: {
+    // secondaryStorage (Redis) etkinken oturum belgeleri varsayılan olarak
+    // Mongo'ya YAZILMAZ (yalnızca Redis'te tutulur). Faz 6'nın eşzamanlı
+    // oturum sınırı / cihaz parmak izi churn tespiti Mongo'daki "session"
+    // koleksiyonunu sorguladığından bu açıkça etkinleştirilir; okumalar yine
+    // de Redis'ten yapılmaya devam eder (performans kaybı yok)
+    storeSessionInDatabase: true,
+    additionalFields: {
+      deviceFingerprint: { type: "string", required: false, input: false },
+    },
+  },
+
   databaseHooks: {
     user: {
       create: {
@@ -82,6 +95,34 @@ export const auth = betterAuth({
               privacyAcceptedAt: now,
             },
           };
+        },
+      },
+    },
+    // Faz 6 — hesap paylaşımı tespiti: girişte cihaz parmak izini oturuma
+    // damgalar ve oturum oluşturulduktan sonra eşzamanlı oturum sınırı /
+    // parmak izi churn tespitini uygular
+    session: {
+      create: {
+        before: async (session, ctx) => {
+          const candidate = session as typeof session & {
+            deviceFingerprint?: string;
+          };
+          const fp =
+            ctx?.headers?.get?.("x-device-fingerprint") ??
+            ctx?.request?.headers?.get?.("x-device-fingerprint") ??
+            null;
+          if (fp && /^[a-f0-9]{64}$/.test(fp)) {
+            return { data: { ...candidate, deviceFingerprint: fp } };
+          }
+        },
+        after: async (session) => {
+          try {
+            await enforceSessionPolicy(
+              session as unknown as { userId: string },
+            );
+          } catch (err) {
+            console.error("session policy enforcement failed:", err);
+          }
         },
       },
     },

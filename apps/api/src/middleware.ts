@@ -19,6 +19,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: SessionUser;
+      /** Faz 6: BetterAuth oturum token'ı — cihaz kimliği fallback'i olarak kullanılır */
+      sessionToken?: string;
     }
   }
 }
@@ -32,6 +34,7 @@ export function requireRole(...roles: Role[]) {
       res.status(401).json({ message: "Oturum gerekli." });
       return;
     }
+    req.sessionToken = session.session.token;
     // Session cache'i (Redis) rol/bayrak değişikliklerini geriden takip eder;
     // yetki kararları her istekte DB'deki güncel kayda göre verilir
     const doc = await db

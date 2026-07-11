@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { createHash } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import type {
@@ -17,6 +18,7 @@ import { hasActiveSubscription } from "../subscriptions.js";
 import { isAnyDeviceOnline } from "../gateway.js";
 import { getOccupancy } from "../occupancy.js";
 import { logAudit } from "../audit.js";
+import { isQrBlocked, recordSharingSignal, QR_LOC_KEY } from "../sharing.js";
 
 export const meRouter: Router = Router();
 
@@ -58,6 +60,8 @@ meRouter.get(
 const qrTokenSchema = z.object({
   lat: z.number().optional(),
   lng: z.number().optional(),
+  /** Android: expo-location sahte konum (mock location) tespiti — Faz 6 */
+  mocked: z.boolean().optional(),
 });
 
 // US-7: turnikede okutulacak kısa ömürlü, imzalı QR token üretimi
@@ -70,7 +74,7 @@ meRouter.post(
       res.status(400).json({ message: "Geçersiz konum bilgisi." });
       return;
     }
-    const { lat, lng } = parsed.data;
+    const { lat, lng, mocked } = parsed.data;
 
     // Basit hız sınırı: kullanıcı başına dakikada 30 QR isteği
     const rlKey = `og:rl:qr-token:${req.user!.id}`;
@@ -85,12 +89,79 @@ meRouter.post(
       return;
     }
 
+    // Faz 6: eskalasyon eşiğini aşan hesaplarda QR üretimi geçici olarak kapalıdır
+    if (await isQrBlocked(req.user!.id)) {
+      res.status(403).json({
+        code: "SHARING_BLOCKED",
+        message:
+          "Hesabınızda olağan dışı kullanım tespit edildi. QR üretimi geçici olarak kapatıldı. Lütfen resepsiyona başvurun.",
+      });
+      return;
+    }
+
+    // Faz 6: expo-location "mocked" bayrağı true ise sahte konum uygulaması
+    // tespit edilmiştir — QR üretimi reddedilir (giriş etkilenmez). Bu kontrol
+    // salon konumu yapılandırılmamış olsa bile çalışır ve konum geçmişi
+    // (QR_LOC_KEY) yazılmadan ÖNCE yapılır: sahte koordinatlar konum
+    // tutarsızlığı sinyalini beslememeli
+    if (mocked === true) {
+      await recordSharingSignal(req.user!, "mock-location", { lat, lng });
+      res.status(403).json({
+        code: "MOCK_LOCATION",
+        message:
+          "Sahte konum tespit edildi. Konum taklit uygulamalarını kapatıp tekrar deneyin.",
+      });
+      return;
+    }
+
     if (!(await hasActiveSubscription(req.user!.id))) {
       res.status(403).json({
         code: "NO_ACTIVE_SUBSCRIPTION",
         message: "Aktif aboneliğiniz yok. Salon resepsiyonuna başvurun.",
       });
       return;
+    }
+
+    // Faz 6: iki farklı cihazdan kısa aralıkla, birbirinden uzak konumlarda QR
+    // istekleri gelmesi hesap paylaşımı şüphesi olarak kaydedilir (istek
+    // reddedilmez — yalnızca sinyal olarak işlenir)
+    if (typeof lat === "number" && typeof lng === "number") {
+      // Ham oturum token'ı hiçbir zaman sinyal/audit kaydına yazılmaz —
+      // parmak izi header'ı yoksa (ör. iOS, web) token'ın SHA-256 hash'i
+      // cihaz kimliği yerine geçer (geri döndürülemez, tek yönlü)
+      const headerFp = req.header("x-device-fingerprint");
+      const validHeaderFp =
+        headerFp && /^[a-f0-9]{64}$/.test(headerFp) ? headerFp : null;
+      const deviceId =
+        validHeaderFp ??
+        (req.sessionToken
+          ? createHash("sha256").update(req.sessionToken).digest("hex")
+          : null);
+      const locKey = QR_LOC_KEY(req.user!.id);
+      const prevRaw = await redis.get(locKey);
+      if (prevRaw && deviceId) {
+        const prev = JSON.parse(prevRaw) as {
+          d: string | null;
+          lat: number;
+          lng: number;
+          at: number;
+        };
+        if (prev.d && prev.d !== deviceId && Date.now() - prev.at < 120_000) {
+          const distanceM = distanceMeters(prev.lat, prev.lng, lat, lng);
+          if (distanceM > 1000) {
+            await recordSharingSignal(req.user!, "location-inconsistency", {
+              distanceM,
+              deviceId,
+              prevDeviceId: prev.d,
+            });
+          }
+        }
+      }
+      await redis.set(
+        locKey,
+        JSON.stringify({ d: deviceId, lat, lng, at: Date.now() }),
+        { EX: 120 },
+      );
     }
 
     const settings = await db
@@ -192,7 +263,9 @@ meRouter.post(
       .collection("deletion_requests")
       .findOne({ userId, status: "pending" });
     if (existingPending) {
-      res.status(409).json({ message: "Zaten bekleyen bir silme talebiniz var." });
+      res
+        .status(409)
+        .json({ message: "Zaten bekleyen bir silme talebiniz var." });
       return;
     }
     await db.collection("deletion_requests").insertOne({
@@ -219,7 +292,9 @@ meRouter.delete(
       status: "pending",
     });
     if (result.deletedCount === 0) {
-      res.status(404).json({ message: "Bekleyen bir silme talebi bulunamadı." });
+      res
+        .status(404)
+        .json({ message: "Bekleyen bir silme talebi bulunamadı." });
       return;
     }
     await logAudit(req.user!, "kvkk-deletion-cancelled");

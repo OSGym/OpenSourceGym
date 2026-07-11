@@ -2,7 +2,7 @@ import { db } from "./db.js";
 import type { SessionUser } from "./middleware.js";
 
 export async function logAudit(
-  actor: SessionUser,
+  actor: Pick<SessionUser, "id" | "email">,
   action: string,
   targetId?: string,
   details?: Record<string, unknown>,
