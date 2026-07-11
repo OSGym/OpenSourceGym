@@ -38,7 +38,7 @@
 **İş Kırılımı:**
 
 - [x] BetterAuth entegrasyonu: e-posta + şifre, oturum/token yönetimi (Mongo adapter + Redis secondary storage)
-- [x] Üye kayıt API'si: isim, soyisim, telefon, e-posta, şifre
+- [x] Üye kayıt API'si: isim, soyisim, E.164'e normalize ve tekilleştirilen telefon, e-posta, şifre; eski mükerrer telefonlar çatışma kaydıyla korunur
 - [x] KVKK aydınlatma metni + gizlilik sözleşmesi onayları (zaman damgalı kayıt, onaysız kayıt reddedilir)
 - [x] SMTP e-posta doğrulama: 6 haneli OTP, 10 dk geçerli; kod gönderimi, doğrulama ucu, kod yeniden gönderme (SMTP yapılandırılmamışsa dev'de konsola yazılır)
 - [x] Doğrulanmamış hesabın girişinin engellenmesi (403 EMAIL_NOT_VERIFIED)
@@ -61,9 +61,9 @@
 - [x] İlk kurulum akışı: `admin@opengym.local` / `admin1234` → zorunlu şifre değişimi; şifre değişmeden tüm panel uçları middleware ile kilitli (US-2). Not: e-posta tabanlı auth + min 8 karakter politikası nedeniyle `admin:admin` yerine bu kimlik kullanıldı.
 - [x] Kurulum sihirbazı iskeleti (salon adı, koordinatlar, kapasite; SMTP env ile yapılandırılıyor, MFA seçeneği Faz 5'te eklenir)
 - [x] Rol sistemi: admin / staff / member
-- [x] Personel ekleme: telefon numarasıyla üye arama + rol atama (US-3 — MFA doğrulaması Faz 5'e ertelendi)
+- [x] Personel ekleme: telefon, e-posta, ad veya soyad ile birleşik üye arama + rol atama (US-3 — MFA doğrulaması Faz 5'e ertelendi)
 - [x] Hassas işlem loglaması (rol atama, abonelik, ayar, şifre değişimi) — `audit_logs` koleksiyonu
-- [x] Abonelik tanımlama/uzatma: süre paketi (1/3/6/12 ay), işlemi yapan personel kaydıyla (US-6); üye tarafı için `/api/me/subscription` hazır
+- [x] Abonelik tanımlama/uzatma: sunucuda ardışık takvim ayı süre paketi (1/3/6/12 ay), kullanıcı bazlı Redis kilidi ve işlemi yapan personel kaydıyla (US-6); üye tarafı için `/api/me/subscription` hazır
 
 **Definition of Done:** US-2 tam; US-3 MFA hariç tam; US-6 kabul kriterleri geçer. Şifre değiştirilmeden hiçbir panel sayfası açılmaz.
 
@@ -78,8 +78,8 @@
 **İş Kırılımı:**
 
 - [x] React Native (Expo SDK 57) iskelet + BetterAuth istemci entegrasyonu (`@better-auth/expo` + SecureStore)
-- [x] Kayıt ekranı: form alanları, KVKK/gizlilik onay kutuları, e-posta doğrulama (OTP) akışı + doğrulama sonrası otomatik giriş
-- [x] Giriş ekranı (doğrulanmamış hesapta OTP ekranına yönlendirme + kod yeniden gönderme)
+- [x] Kayıt ekranı: form alanları, KVKK/gizlilik onay kutuları, e-posta doğrulama (OTP) akışı + doğrulama sonrası otomatik giriş ve tamamlanan OTP durumunun sıfırlanması
+- [x] Giriş ekranı (doğrulanmamış hesapta OTP ekranına yönlendirme + kod yeniden gönderme; oturum kapanınca eski OTP ekranı yeniden açılmaz)
 - [x] Ana ekran: kalan gün sayısı, abonelik bitiş tarihi, pull-to-refresh (US-4 — doluluk oranı Faz 5'te)
 - [ ] KPI-2 ölçümü: kayıt akışı < 3 dk (manuel ölçüm bekliyor)
 

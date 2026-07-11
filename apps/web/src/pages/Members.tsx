@@ -1,24 +1,40 @@
 import { useState } from "react";
-import type { MfaMethod, PublicUser, Subscription } from "@opengym/shared";
+import type {
+  CreateSubscriptionRequest,
+  MfaMethod,
+  PublicUser,
+  Subscription,
+  SubscriptionMonths,
+} from "@opengym/shared";
 import { ApiError, api, authApi } from "../lib/api";
 import { useProfile } from "../lib/profile";
 
 const fmt = (iso: string) => new Date(iso).toLocaleDateString("tr-TR");
+const subscriptionMonthOptions: readonly SubscriptionMonths[] = [1, 3, 6, 12];
 
-function addMonths(months: number): { startsAt: string; endsAt: string } {
-  const start = new Date();
-  const end = new Date();
-  end.setMonth(end.getMonth() + months);
-  return { startsAt: start.toISOString(), endsAt: end.toISOString() };
+function subscriptionStatus(subscription: Subscription): {
+  label: string;
+  className: string;
+} {
+  const now = Date.now();
+  if (new Date(subscription.startsAt).getTime() > now) {
+    return { label: "Planlandı", className: "warn" };
+  }
+  if (new Date(subscription.endsAt).getTime() >= now) {
+    return { label: "Aktif", className: "ok" };
+  }
+  return { label: "Bitti", className: "member" };
 }
 
 function SubscriptionPanel({ member }: { member: PublicUser }) {
   const [subs, setSubs] = useState<Subscription[] | null>(null);
   const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
-  const [months, setMonths] = useState(1);
+  const [months, setMonths] = useState<SubscriptionMonths>(1);
 
   async function load() {
-    setSubs(await api<Subscription[]>(`/api/admin/users/${member.id}/subscriptions`));
+    setSubs(
+      await api<Subscription[]>(`/api/admin/users/${member.id}/subscriptions`),
+    );
   }
 
   if (subs === null) {
@@ -28,9 +44,14 @@ function SubscriptionPanel({ member }: { member: PublicUser }) {
   async function grant() {
     setMsg(null);
     try {
+      const request: CreateSubscriptionRequest = {
+        userId: member.id,
+        months,
+        note: `${months} aylık paket`,
+      };
       await api("/api/admin/subscriptions", {
         method: "POST",
-        body: { userId: member.id, ...addMonths(months), note: `${months} aylık paket` },
+        body: request,
       });
       setMsg({ kind: "success", text: "Abonelik tanımlandı." });
       await load();
@@ -54,12 +75,15 @@ function SubscriptionPanel({ member }: { member: PublicUser }) {
           <select
             id="months"
             value={months}
-            onChange={(e) => setMonths(Number(e.target.value))}
+            onChange={(e) =>
+              setMonths(Number(e.target.value) as SubscriptionMonths)
+            }
           >
-            <option value={1}>1 ay</option>
-            <option value={3}>3 ay</option>
-            <option value={6}>6 ay</option>
-            <option value={12}>12 ay</option>
+            {subscriptionMonthOptions.map((option) => (
+              <option key={option} value={option}>
+                {option} ay
+              </option>
+            ))}
           </select>
         </div>
         <button onClick={grant}>Abonelik tanımla</button>
@@ -74,20 +98,21 @@ function SubscriptionPanel({ member }: { member: PublicUser }) {
           </tr>
         </thead>
         <tbody>
-          {(subs ?? []).map((s) => (
-            <tr key={s.id}>
-              <td>{fmt(s.startsAt)}</td>
-              <td>{fmt(s.endsAt)}</td>
-              <td>{s.note ?? "—"}</td>
-              <td>
-                {new Date(s.endsAt) >= new Date() ? (
-                  <span className="badge ok">Aktif</span>
-                ) : (
-                  <span className="badge member">Bitti</span>
-                )}
-              </td>
-            </tr>
-          ))}
+          {(subs ?? []).map((subscription) => {
+            const status = subscriptionStatus(subscription);
+            return (
+              <tr key={subscription.id}>
+                <td>{fmt(subscription.startsAt)}</td>
+                <td>{fmt(subscription.endsAt)}</td>
+                <td>{subscription.note ?? "—"}</td>
+                <td>
+                  <span className={`badge ${status.className}`}>
+                    {status.label}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
           {subs?.length === 0 && (
             <tr>
               <td colSpan={4}>Abonelik kaydı yok.</td>
@@ -106,7 +131,7 @@ interface MfaPrompt {
 
 export function Members() {
   const { profile: user } = useProfile();
-  const [phone, setPhone] = useState("");
+  const [query, setQuery] = useState("");
   const [results, setResults] = useState<PublicUser[] | null>(null);
   const [selected, setSelected] = useState<PublicUser | null>(null);
   const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
@@ -122,11 +147,15 @@ export function Members() {
     e.preventDefault();
     setMsg(null);
     setSelected(null);
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults(null);
+      setMsg({ kind: "error", text: "Arama için en az iki karakter girin." });
+      return;
+    }
     try {
       setResults(
-        await api<PublicUser[]>(
-          `/api/admin/users?phone=${encodeURIComponent(phone)}`,
-        ),
+        await api<PublicUser[]>(`/api/admin/users?q=${encodeURIComponent(q)}`),
       );
     } catch (err) {
       setResults(null);
@@ -207,7 +236,9 @@ export function Members() {
       if (err instanceof ApiError && err.code === "MFA_INVALID") {
         setMfaError("Kod geçersiz.");
       } else {
-        setMfaError(err instanceof Error ? err.message : "Doğrulama başarısız.");
+        setMfaError(
+          err instanceof Error ? err.message : "Doğrulama başarısız.",
+        );
       }
     } finally {
       setMfaBusy(false);
@@ -220,12 +251,15 @@ export function Members() {
       <div className="panel">
         <form className="row" onSubmit={search}>
           <div className="field">
-            <label htmlFor="phone">Telefon numarası</label>
+            <label htmlFor="member-query">
+              Telefon, e-posta, ad veya soyad
+            </label>
             <input
-              id="phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+90…"
+              id="member-query"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Ayşe Yılmaz, ayse@… veya +90530…"
+              minLength={2}
               required
             />
           </div>

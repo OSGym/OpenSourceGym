@@ -8,10 +8,12 @@ export function VerifyOtp({
   email,
   password,
   onBack,
+  onVerified,
 }: {
   email: string;
   password: string;
   onBack: () => void;
+  onVerified: () => void;
 }) {
   const [otp, setOtp] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -32,12 +34,16 @@ export function VerifyOtp({
     const signIn = await authClient.signIn.email({
       email,
       password,
-      fetchOptions: fp ? { headers: { "X-Device-Fingerprint": fp } } : undefined,
+      fetchOptions: fp
+        ? { headers: { "X-Device-Fingerprint": fp } }
+        : undefined,
     });
     setBusy(false);
     if (signIn.error) {
       setError("Doğrulama tamam; giriş başarısız. Giriş ekranından deneyin.");
+      return;
     }
+    onVerified();
   }
 
   async function resend() {
@@ -63,7 +69,9 @@ export function VerifyOtp({
         {email} adresine gönderilen 6 haneli kodu girin.
       </Text>
       <ErrorMsg text={error} />
-      {info && <Text style={{ color: "#7fd069", marginBottom: 14 }}>{info}</Text>}
+      {info && (
+        <Text style={{ color: "#7fd069", marginBottom: 14 }}>{info}</Text>
+      )}
       <Field
         label="Doğrulama kodu"
         value={otp}

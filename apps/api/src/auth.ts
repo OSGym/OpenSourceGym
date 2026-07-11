@@ -3,12 +3,97 @@ import { APIError } from "better-auth/api";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { emailOTP, twoFactor } from "better-auth/plugins";
 import { expo } from "@better-auth/expo";
+import { MongoServerError } from "mongodb";
 import { db } from "./db.js";
 import { redis } from "./redis.js";
 import { sendMail } from "./mailer.js";
 import { env } from "./env.js";
 import { enforceSessionPolicy } from "./sharing.js";
 import { revokeUserSessions } from "./sessions.js";
+import {
+  isInitialAdminSeedInput,
+  INITIAL_ADMIN_PHONE,
+} from "./initialAdmin.js";
+import {
+  hasActivePhoneConflict,
+  reconcilePhoneConflictsAfterUserChange,
+} from "./phoneBackfill.js";
+import {
+  INVALID_PHONE_MESSAGE,
+  InvalidPhoneNumberError,
+  normalizePhoneToE164,
+  PHONE_ALREADY_EXISTS_CODE,
+  PHONE_ALREADY_EXISTS_MESSAGE,
+} from "./phone.js";
+
+function normalizePhoneForApi(value: unknown): string {
+  try {
+    return normalizePhoneToE164(value);
+  } catch (error) {
+    if (error instanceof InvalidPhoneNumberError) {
+      throw new APIError("BAD_REQUEST", {
+        code: "INVALID_PHONE_NUMBER",
+        message: INVALID_PHONE_MESSAGE,
+      });
+    }
+    throw error;
+  }
+}
+
+function duplicatePhoneError(): APIError {
+  return new APIError("BAD_REQUEST", {
+    code: PHONE_ALREADY_EXISTS_CODE,
+    message: PHONE_ALREADY_EXISTS_MESSAGE,
+  });
+}
+
+function isPhoneIdentityDuplicateKey(error: unknown): boolean {
+  return (
+    error instanceof MongoServerError &&
+    error.code === 11000 &&
+    (error.keyPattern?.phoneE164 === 1 ||
+      error.message.includes("user_phone_e164_unique"))
+  );
+}
+
+// Hook ön kontrolü kullanıcı dostu hata üretir; bu adapter sarmalayıcısı ise
+// iki yazım aynı anda ön kontrolden geçtiğinde Mongo'nun atomik E11000
+// sonucunu aynı PHONE_ALREADY_EXISTS sözleşmesine çevirir.
+const baseDatabaseAdapter = mongodbAdapter(db);
+const databaseAdapter: typeof baseDatabaseAdapter = (options) => {
+  const adapter = baseDatabaseAdapter(options);
+  return {
+    ...adapter,
+    async create(input) {
+      try {
+        return await adapter.create(input);
+      } catch (error) {
+        if (input.model === "user" && isPhoneIdentityDuplicateKey(error)) {
+          throw duplicatePhoneError();
+        }
+        throw error;
+      }
+    },
+    async update(input) {
+      try {
+        return await adapter.update(input);
+      } catch (error) {
+        if (input.model === "user" && isPhoneIdentityDuplicateKey(error)) {
+          throw duplicatePhoneError();
+        }
+        throw error;
+      }
+    },
+  };
+};
+
+async function assertPhoneAvailable(phoneE164: string): Promise<void> {
+  const [existingUser, activeConflict] = await Promise.all([
+    db.collection("user").findOne({ phoneE164 }, { projection: { _id: 1 } }),
+    hasActivePhoneConflict(phoneE164),
+  ]);
+  if (existingUser || activeConflict) throw duplicatePhoneError();
+}
 
 export const auth = betterAuth({
   baseURL: env.betterAuthUrl,
@@ -20,7 +105,7 @@ export const auth = betterAuth({
     "opengym://",
     ...(env.nodeEnv !== "production" ? ["exp://"] : []),
   ],
-  database: mongodbAdapter(db),
+  database: databaseAdapter,
 
   secondaryStorage: {
     get: (key) => redis.get(key),
@@ -75,7 +160,18 @@ export const auth = betterAuth({
       firstName: { type: "string", required: true },
       lastName: { type: "string", required: true },
       phone: { type: "string", required: true },
-      role: { type: "string", required: false, defaultValue: "member", input: false },
+      phoneE164: {
+        type: "string",
+        required: false,
+        input: false,
+        returned: false,
+      },
+      role: {
+        type: "string",
+        required: false,
+        defaultValue: "member",
+        input: false,
+      },
       mustChangePassword: {
         type: "boolean",
         required: false,
@@ -106,6 +202,8 @@ export const auth = betterAuth({
       create: {
         before: async (user) => {
           const candidate = user as typeof user & {
+            email?: string;
+            phone?: unknown;
             kvkkAccepted?: boolean;
             privacyAccepted?: boolean;
           };
@@ -115,15 +213,45 @@ export const auth = betterAuth({
                 "KVKK aydınlatma metni ve gizlilik sözleşmesi onayları zorunludur.",
             });
           }
+          const isInitialAdminSeed = isInitialAdminSeedInput(
+            candidate.email,
+            candidate.phone,
+          );
+          const phoneE164 = isInitialAdminSeed
+            ? null
+            : normalizePhoneForApi(candidate.phone);
+          if (phoneE164) await assertPhoneAvailable(phoneE164);
+
           const now = new Date();
           return {
             data: {
               ...user,
+              ...(phoneE164
+                ? { phone: phoneE164, phoneE164 }
+                : { phone: INITIAL_ADMIN_PHONE }),
               role: "member",
               kvkkAcceptedAt: now,
               privacyAcceptedAt: now,
             },
           };
+        },
+      },
+      update: {
+        before: async (user) => {
+          if (!Object.prototype.hasOwnProperty.call(user, "phone")) return;
+
+          const candidate = user as typeof user & { phone?: unknown };
+          const phoneE164 = normalizePhoneForApi(candidate.phone);
+          if (await hasActivePhoneConflict(phoneE164)) {
+            throw duplicatePhoneError();
+          }
+          return { data: { ...user, phone: phoneE164, phoneE164 } };
+        },
+        after: async (user) => {
+          const updated = user as typeof user & { id?: unknown };
+          if (typeof updated.id === "string") {
+            await reconcilePhoneConflictsAfterUserChange(updated.id);
+          }
         },
       },
     },

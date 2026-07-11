@@ -6,6 +6,12 @@
       "outputs": ["dist/**"]
     },
     "lint": {},
+    "test": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "env": ["TEST_MONGODB_URI", "TEST_REDIS_URL"],
+      "outputs": []
+    },
     "typecheck": {
       "dependsOn": ["^build"]
     },

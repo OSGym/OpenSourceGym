@@ -13,6 +13,8 @@ import { meRouter } from "./routes/me.js";
 import { devicesRouter } from "./routes/devices.js";
 import { attachDeviceGateway } from "./gateway.js";
 import { startEntryEventConsumer } from "./eventQueue.js";
+import { backfillLegacyUserPhones } from "./phoneBackfill.js";
+import { repairLegacySubscriptionOverlaps } from "./subscriptions.js";
 
 const app = express();
 
@@ -38,8 +40,10 @@ const server = createServer(app);
 
 async function main() {
   await mongoClient.connect();
+  await backfillLegacyUserPhones();
   await ensureIndexes();
   await connectRedis();
+  await repairLegacySubscriptionOverlaps();
   await seedInitialAdmin();
   attachDeviceGateway(server);
   await startEntryEventConsumer();

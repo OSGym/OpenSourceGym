@@ -17,6 +17,21 @@ import { requireRole } from "../middleware.js";
 import { markOutside } from "../occupancy.js";
 import { revokeUserSessions } from "../sessions.js";
 import { SHARING_DEFAULTS } from "../sharing.js";
+import {
+  createSequentialSubscription,
+  listUserSubscriptions,
+  SubscriptionLockTimeoutError,
+} from "../subscriptions.js";
+import { tryNormalizePhoneToE164 } from "../phone.js";
+import {
+  buildUserSearchFilter,
+  parseUserSearchQuery,
+  USER_SEARCH_LIMIT,
+} from "../userSearch.js";
+import {
+  findActivePhoneConflictUserIds,
+  reconcilePhoneConflictsAfterUserChange,
+} from "../phoneBackfill.js";
 
 export const adminRouter: Router = Router();
 
@@ -27,6 +42,7 @@ function toPublicUser(doc: {
   firstName?: string;
   lastName?: string;
   phone?: string;
+  phoneE164?: string;
   role?: string;
   emailVerified?: boolean;
   twoFactorEnabled?: boolean;
@@ -38,7 +54,8 @@ function toPublicUser(doc: {
     email: doc.email ?? "",
     firstName: doc.firstName ?? "",
     lastName: doc.lastName ?? "",
-    phone: doc.phone ?? "",
+    phone:
+      doc.phoneE164 ?? tryNormalizePhoneToE164(doc.phone) ?? doc.phone ?? "",
     role: (doc.role ?? "member") as Role,
     emailVerified: doc.emailVerified ?? false,
     twoFactorEnabled: doc.twoFactorEnabled ?? false,
@@ -86,18 +103,21 @@ adminRouter.post(
   },
 );
 
-// US-3: telefon numarasıyla üye arama (personel + admin)
+// US-3: telefon, e-posta, ad veya soyad ile üye arama (personel + admin)
 adminRouter.get("/users", requireRole("admin", "staff"), async (req, res) => {
-  const phone = String(req.query.phone ?? "").trim();
-  if (phone.length < 4) {
-    res.status(400).json({ message: "En az 4 haneli telefon numarası girin." });
+  const query = parseUserSearchQuery(req.query.q);
+  if (!query) {
+    res.status(400).json({ message: "Arama için en az iki karakter girin." });
     return;
   }
-  const escaped = phone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const phoneE164 = tryNormalizePhoneToE164(query);
+  const conflictUserIds = phoneE164
+    ? await findActivePhoneConflictUserIds(phoneE164)
+    : [];
   const docs = await db
     .collection("user")
-    .find({ phone: { $regex: escaped } })
-    .limit(20)
+    .find(buildUserSearchFilter(query, conflictUserIds))
+    .limit(USER_SEARCH_LIMIT)
     .toArray();
   res.json(docs.map((d) => toPublicUser(d as never)));
 });
@@ -184,24 +204,24 @@ adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
   res.json({ ok: true });
 });
 
+const createSubscriptionSchema = z
+  .object({
+    userId: z.string(),
+    months: z.union([z.literal(1), z.literal(3), z.literal(6), z.literal(12)]),
+    note: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
 // US-6: abonelik tanımlama/uzatma (personel + admin)
 adminRouter.post(
   "/subscriptions",
   requireRole("admin", "staff"),
   async (req, res) => {
-    const { userId, startsAt, endsAt, note } = req.body ?? {};
-    const targetId = typeof userId === "string" ? parseObjectId(userId) : null;
-    const start = new Date(startsAt);
-    const end = new Date(endsAt);
-    if (
-      !targetId ||
-      Number.isNaN(start.getTime()) ||
-      Number.isNaN(end.getTime()) ||
-      end <= start
-    ) {
+    const parsed = createSubscriptionSchema.safeParse(req.body ?? {});
+    const targetId = parsed.success ? parseObjectId(parsed.data.userId) : null;
+    if (!parsed.success || !targetId) {
       res.status(400).json({
-        message:
-          "Geçerli kullanıcı ve tarih aralığı (bitiş > başlangıç) girin.",
+        message: "Geçerli kullanıcı ve abonelik paketi girin.",
       });
       return;
     }
@@ -210,20 +230,35 @@ adminRouter.post(
       res.status(404).json({ message: "Kullanıcı bulunamadı." });
       return;
     }
-    const inserted = await db.collection("subscriptions").insertOne({
-      userId: targetId,
-      startsAt: start,
-      endsAt: end,
-      note: typeof note === "string" && note ? note : null,
-      createdBy: req.user!.id,
-      createdAt: new Date(),
-    });
-    await logAudit(req.user!, "subscription-created", String(userId), {
-      startsAt: start.toISOString(),
-      endsAt: end.toISOString(),
-      subscriptionId: inserted.insertedId.toString(),
-    });
-    res.json({ ok: true, id: inserted.insertedId.toString() });
+    try {
+      const created = await createSequentialSubscription({
+        userId: targetId,
+        months: parsed.data.months,
+        note: parsed.data.note || null,
+        createdBy: req.user!.id,
+      });
+      await logAudit(req.user!, "subscription-created", parsed.data.userId, {
+        months: parsed.data.months,
+        startsAt: created.startsAt.toISOString(),
+        endsAt: created.endsAt.toISOString(),
+        subscriptionId: created.id.toHexString(),
+      });
+      res.json({
+        ok: true,
+        id: created.id.toHexString(),
+        startsAt: created.startsAt.toISOString(),
+        endsAt: created.endsAt.toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof SubscriptionLockTimeoutError) {
+        res.status(503).json({
+          code: "SUBSCRIPTION_BUSY",
+          message: "Abonelik işlemi sürüyor. Lütfen tekrar deneyin.",
+        });
+        return;
+      }
+      throw error;
+    }
   },
 );
 
@@ -236,12 +271,7 @@ adminRouter.get(
       res.status(400).json({ message: "Geçersiz kullanıcı." });
       return;
     }
-    const docs = await db
-      .collection("subscriptions")
-      .find({ userId: targetId })
-      .sort({ endsAt: -1 })
-      .limit(50)
-      .toArray();
+    const docs = await listUserSubscriptions(targetId);
     res.json(
       docs.map((d) => ({
         id: d._id.toString(),
@@ -305,11 +335,7 @@ adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
     return;
   }
   const autoExit = autoExitHours == null ? 4 : Number(autoExitHours);
-  if (
-    !Number.isInteger(autoExit) ||
-    autoExit < 1 ||
-    autoExit > 48
-  ) {
+  if (!Number.isInteger(autoExit) || autoExit < 1 || autoExit > 48) {
     res.status(400).json({ message: "Geçersiz otomatik çıkış süresi." });
     return;
   }
@@ -331,11 +357,9 @@ adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
     setDoc.sharing = parsedSharing.data;
   }
 
-  await db.collection("settings").updateOne(
-    { _id: "gym" as never },
-    { $set: setDoc },
-    { upsert: true },
-  );
+  await db
+    .collection("settings")
+    .updateOne({ _id: "gym" as never }, { $set: setDoc }, { upsert: true });
   await logAudit(req.user!, "settings-updated", undefined, {
     gymName: gymName.trim(),
     autoExitHours: autoExit,
@@ -391,25 +415,29 @@ adminRouter.get(
 );
 
 // Faz 5 — KVKK: bekleyen hesap silme talepleri listesi (yalnızca admin)
-adminRouter.get("/deletion-requests", requireRole("admin"), async (_req, res) => {
-  const docs = await db
-    .collection("deletion_requests")
-    .find({})
-    .sort({ requestedAt: -1 })
-    .limit(100)
-    .toArray();
-  const body: DeletionRequest[] = docs.map((d) => ({
-    id: d._id.toString(),
-    userId: (d.userId as ObjectId).toString(),
-    email: d.email ?? "",
-    name: d.name ?? "",
-    requestedAt: d.requestedAt.toISOString(),
-    status: d.status,
-    resolvedAt: d.resolvedAt ? new Date(d.resolvedAt).toISOString() : null,
-    resolvedBy: d.resolvedBy ?? null,
-  }));
-  res.json(body);
-});
+adminRouter.get(
+  "/deletion-requests",
+  requireRole("admin"),
+  async (_req, res) => {
+    const docs = await db
+      .collection("deletion_requests")
+      .find({})
+      .sort({ requestedAt: -1 })
+      .limit(100)
+      .toArray();
+    const body: DeletionRequest[] = docs.map((d) => ({
+      id: d._id.toString(),
+      userId: (d.userId as ObjectId).toString(),
+      email: d.email ?? "",
+      name: d.name ?? "",
+      requestedAt: d.requestedAt.toISOString(),
+      status: d.status,
+      resolvedAt: d.resolvedAt ? new Date(d.resolvedAt).toISOString() : null,
+      resolvedBy: d.resolvedBy ?? null,
+    }));
+    res.json(body);
+  },
+);
 
 // KVKK: silme talebini onaylar — üyeyi ve tüm ilişkili verilerini kalıcı olarak siler
 adminRouter.post(
@@ -473,6 +501,10 @@ adminRouter.post(
         },
       },
     );
+
+    // Mükerrer telefon çatışma kayıtlarından silinen kullanıcının PII'sini
+    // kaldırır; tek hesap kaldıysa onu E.164'e taşıyıp çatışma kaydını siler.
+    await reconcilePhoneConflictsAfterUserChange(targetIdStr);
 
     await logAudit(req.user!, "kvkk-deletion-approved", targetIdStr);
     res.json({ ok: true });

@@ -31,7 +31,9 @@ export function Register({
       return;
     }
     if (!kvkk || !privacy) {
-      setError("KVKK aydınlatma metni ve gizlilik sözleşmesi onayları zorunludur.");
+      setError(
+        "KVKK aydınlatma metni ve gizlilik sözleşmesi onayları zorunludur.",
+      );
       return;
     }
     setBusy(true);
@@ -48,11 +50,24 @@ export function Register({
     });
     setBusy(false);
     if (error) {
-      setError(
-        error.code === "USER_ALREADY_EXISTS"
-          ? "Bu e-posta ile kayıtlı hesap var."
-          : (error.message ?? "Kayıt başarısız."),
-      );
+      const message = error.message ?? "";
+      const normalizedMessage = message.toLocaleLowerCase("tr-TR");
+      const duplicatePhone =
+        error.code === "PHONE_ALREADY_EXISTS" ||
+        (normalizedMessage.includes("telefon") &&
+          (normalizedMessage.includes("kayıtlı") ||
+            normalizedMessage.includes("kullanılıyor")));
+
+      if (duplicatePhone) {
+        setError("Bu telefon numarası ile kayıtlı hesap var.");
+      } else if (
+        error.code === "USER_ALREADY_EXISTS" ||
+        error.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"
+      ) {
+        setError("Bu e-posta ile kayıtlı hesap var.");
+      } else {
+        setError(message || "Kayıt başarısız.");
+      }
       return;
     }
     onRegistered(email, password);
