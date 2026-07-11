@@ -40,6 +40,32 @@ function normalizePhoneForApi(value: unknown): string {
   }
 }
 
+const DEV_TEST_EMAIL_DOMAIN = "@test.com";
+const DEV_TEST_OTP = "111111";
+
+function isDevTestEmail(email: string): boolean {
+  return (
+    env.nodeEnv === "development" &&
+    email.toLowerCase().endsWith(DEV_TEST_EMAIL_DOMAIN)
+  );
+}
+
+function bypassableRateLimit(window: number, max: number) {
+  return async (request: Request) => {
+    if (env.nodeEnv === "development") {
+      try {
+        const body = await request.clone().json();
+        if (typeof body?.email === "string" && isDevTestEmail(body.email)) {
+          return false as const;
+        }
+      } catch {
+        // JSON olmayan/boş body — normal kuralı uygula
+      }
+    }
+    return { window, max };
+  };
+}
+
 function duplicatePhoneError(): APIError {
   return new APIError("BAD_REQUEST", {
     code: PHONE_ALREADY_EXISTS_CODE,
@@ -293,7 +319,16 @@ export const auth = betterAuth({
       expiresIn: 600,
       storeOTP: "hashed",
       resendStrategy: "rotate",
+      generateOTP({ email }) {
+        return isDevTestEmail(email) ? DEV_TEST_OTP : undefined;
+      },
       async sendVerificationOTP({ email, otp, type }) {
+        if (isDevTestEmail(email)) {
+          console.log(
+            `[mail:dev-test] to=${email} type=${type} otp=${otp} (SMTP atlandı, @test.com)`,
+          );
+          return;
+        }
         const subjects: Record<string, string> = {
           "email-verification": "OpenGym e-posta doğrulama kodunuz",
           "sign-in": "OpenGym giriş kodunuz",
@@ -329,12 +364,12 @@ export const auth = betterAuth({
     window: 60,
     max: 60,
     customRules: {
-      "/sign-up/email": { window: 60, max: 3 },
-      "/sign-in/email": { window: 60, max: 5 },
-      "/email-otp/send-verification-otp": { window: 60, max: 3 },
-      "/email-otp/verify-email": { window: 60, max: 5 },
-      "/email-otp/request-password-reset": { window: 60, max: 3 },
-      "/email-otp/reset-password": { window: 60, max: 5 },
+      "/sign-up/email": bypassableRateLimit(60, 3),
+      "/sign-in/email": bypassableRateLimit(60, 5),
+      "/email-otp/send-verification-otp": bypassableRateLimit(60, 3),
+      "/email-otp/verify-email": bypassableRateLimit(60, 5),
+      "/email-otp/request-password-reset": bypassableRateLimit(60, 3),
+      "/email-otp/reset-password": bypassableRateLimit(60, 5),
       "/two-factor/send-otp": { window: 60, max: 3 },
       "/two-factor/verify-totp": { window: 60, max: 5 },
       "/two-factor/verify-otp": { window: 60, max: 5 },
