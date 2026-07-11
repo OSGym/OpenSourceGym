@@ -164,25 +164,48 @@ export async function hasActivePhoneConflict(
   return conflict !== null;
 }
 
+export async function findActivePhoneConflictUserIds(
+  phoneE164: string,
+  database: Db = db,
+): Promise<ObjectId[]> {
+  const conflict = await database
+    .collection<PhoneConflictDocument>(PHONE_CONFLICT_COLLECTION)
+    .findOne({ _id: phoneE164, active: true }, { projection: { users: 1 } });
+
+  return (conflict?.users ?? [])
+    .map((user) => user.userId)
+    .filter((userId) => ObjectId.isValid(userId))
+    .map((userId) => new ObjectId(userId));
+}
+
 /**
- * KVKK hesap silme akışında yalnız etkilenen çatışmayı günceller. Silinen
- * kullanıcı kimliği önce kayıttan çıkarılır; tek hesap kaldıysa o hesap
- * normalize edilip benzersiz indeksin korumasına alınmadan çatışma silinmez.
+ * Telefonu değişen veya silinen kullanıcıyı eski çatışmalarından çıkarır. Tek
+ * hesap kaldıysa o hesap normalize edilip benzersiz indeksin korumasına
+ * alınmadan çatışma silinmez.
  */
-export async function reconcilePhoneConflictsAfterUserDeletion(
-  deletedUserId: string,
+export async function reconcilePhoneConflictsAfterUserChange(
+  changedUserId: string,
   database: Db = db,
 ): Promise<void> {
   const conflicts = database.collection<PhoneConflictDocument>(
     PHONE_CONFLICT_COLLECTION,
   );
   const affected = await conflicts
-    .find({ "users.userId": deletedUserId })
+    .find({ "users.userId": changedUserId })
     .toArray();
+  if (affected.length === 0) return;
+
+  const users = database.collection<StoredUserPhone>("user");
+  const changedUser = ObjectId.isValid(changedUserId)
+    ? await users.findOne({ _id: new ObjectId(changedUserId) })
+    : null;
+  const changedPhoneE164 = tryNormalizePhoneToE164(changedUser?.phone);
 
   for (const conflict of affected) {
+    if (changedPhoneE164 === conflict.phoneE164) continue;
+
     const remainingUsers = conflict.users.filter(
-      (user) => user.userId !== deletedUserId,
+      (user) => user.userId !== changedUserId,
     );
     await conflicts.updateOne(
       { _id: conflict._id },
@@ -193,7 +216,6 @@ export async function reconcilePhoneConflictsAfterUserDeletion(
 
     const remainingUserId = remainingUsers[0]?.userId;
     if (remainingUserId && ObjectId.isValid(remainingUserId)) {
-      const users = database.collection<StoredUserPhone>("user");
       const remainingUserObjectId = new ObjectId(remainingUserId);
       const remainingUser = await users.findOne({
         _id: remainingUserObjectId,

@@ -74,6 +74,52 @@ test(
       };
     }
 
+    async function signIn(email: string): Promise<string> {
+      const response = await auth.handler(
+        new Request("http://localhost:3000/api/auth/sign-in/email", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://localhost:5173",
+          },
+          body: JSON.stringify({
+            email,
+            password: "test-password-1234",
+          }),
+        }),
+      );
+      assert.equal(response.status, 200);
+      const cookie = response.headers.get("set-cookie")?.split(";", 1)[0];
+      assert.ok(cookie);
+      return cookie;
+    }
+
+    async function updatePhone(
+      cookie: string,
+      phone: string,
+    ): Promise<{
+      status: number;
+      body: Record<string, unknown> & { code?: string };
+    }> {
+      const response = await auth.handler(
+        new Request("http://localhost:3000/api/auth/update-user", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie,
+            origin: "http://localhost:5173",
+          },
+          body: JSON.stringify({ phone }),
+        }),
+      );
+      return {
+        status: response.status,
+        body: (await response.json()) as Record<string, unknown> & {
+          code?: string;
+        },
+      };
+    }
+
     try {
       await mongoClient.connect();
       await connectRedis();
@@ -165,6 +211,100 @@ test(
       assert.equal(initialAdmin?.phone, "-");
       assert.equal(initialAdmin?.phoneE164, undefined);
       assert.equal(initialAdmin?.role, "admin");
+
+      const conflictPartnerEmail =
+        concurrent[0]?.status === 200
+          ? "phone-c@example.com"
+          : "phone-d@example.com";
+      const target = await signUp("phone-e@example.com", "538 123 45 67");
+      assert.equal(target.status, 200);
+      await db
+        .collection("user")
+        .updateOne(
+          { email: "phone-a@example.com" },
+          { $set: { emailVerified: true } },
+        );
+      const cookie = await signIn("phone-a@example.com");
+
+      const conflictUsers = await db
+        .collection("user")
+        .find({
+          email: { $in: ["phone-a@example.com", conflictPartnerEmail] },
+        })
+        .toArray();
+      assert.equal(conflictUsers.length, 2);
+      const phoneA = conflictUsers.find(
+        (user) => user.email === "phone-a@example.com",
+      );
+      const partner = conflictUsers.find(
+        (user) => user.email === conflictPartnerEmail,
+      );
+      assert.ok(phoneA && partner);
+
+      await db.collection("user").updateOne(
+        { _id: phoneA._id },
+        {
+          $set: { phone: "535 123 45 67" },
+          $unset: { phoneE164: "" },
+        },
+      );
+      await db.collection("user").updateOne(
+        { _id: partner._id },
+        {
+          $set: { phone: "+90 (535) 123-45-67" },
+          $unset: { phoneE164: "" },
+        },
+      );
+      await backfillLegacyUserPhones();
+
+      const resolved = await updatePhone(cookie, "536 123 45 67");
+      assert.equal(resolved.status, 200);
+      assert.equal(
+        await db
+          .collection("phone_identity_conflicts")
+          .findOne({ _id: "+905351234567" as never }),
+        null,
+      );
+      const normalizedPartner = await db
+        .collection("user")
+        .findOne({ _id: partner._id });
+      assert.equal(normalizedPartner?.phone, "+905351234567");
+      assert.equal(normalizedPartner?.phoneE164, "+905351234567");
+
+      await db.collection("user").updateOne(
+        { _id: phoneA._id },
+        {
+          $set: { phone: "537 123 45 67" },
+          $unset: { phoneE164: "" },
+        },
+      );
+      await db.collection("user").updateOne(
+        { _id: partner._id },
+        {
+          $set: { phone: "+90 (537) 123-45-67" },
+          $unset: { phoneE164: "" },
+        },
+      );
+      await backfillLegacyUserPhones();
+
+      const oldConflictBeforeFailure = await db
+        .collection("phone_identity_conflicts")
+        .findOne({ _id: "+905371234567" as never });
+      assert.ok(oldConflictBeforeFailure);
+      const rejectedUpdate = await updatePhone(cookie, "+905381234567");
+      assert.equal(rejectedUpdate.status, 400);
+      assert.equal(rejectedUpdate.body.code, "PHONE_ALREADY_EXISTS");
+      assert.deepEqual(
+        await db
+          .collection("phone_identity_conflicts")
+          .findOne({ _id: "+905371234567" as never }),
+        oldConflictBeforeFailure,
+      );
+      const unchangedPhoneA = await db
+        .collection("user")
+        .findOne({ _id: phoneA._id });
+      assert.equal(unchangedPhoneA?.phone, "537 123 45 67");
+      assert.equal(unchangedPhoneA?.phoneE164, undefined);
     } finally {
       await db.dropDatabase().catch(() => undefined);
       if (redis.isOpen) {

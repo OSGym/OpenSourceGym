@@ -1,4 +1,4 @@
-import type { Document, Filter } from "mongodb";
+import type { Document, Filter, ObjectId } from "mongodb";
 
 export const USER_SEARCH_LIMIT = 20;
 
@@ -27,10 +27,13 @@ function termPatterns(term: string): RegExp[] {
  * Her sorgu terimi en az bir kullanıcı alanıyla eşleşmelidir. Böylece
  * "Ayşe Yılmaz" gibi sorgularda terimler farklı alanlardan karşılanabilir.
  */
-export function buildUserSearchFilter(query: string): Filter<Document> {
+export function buildUserSearchFilter(
+  query: string,
+  conflictUserIds: readonly ObjectId[] = [],
+): Filter<Document> {
   const terms = tokenizeUserSearchQuery(query);
 
-  return {
+  const fieldFilter: Filter<Document> = {
     $and: terms.map((term) => {
       const patterns = termPatterns(term);
       const textPattern = patterns[0]!;
@@ -64,5 +67,10 @@ export function buildUserSearchFilter(query: string): Filter<Document> {
         ],
       };
     }),
+  };
+
+  if (conflictUserIds.length === 0) return fieldFilter;
+  return {
+    $or: [fieldFilter, { _id: { $in: [...conflictUserIds] } }],
   };
 }

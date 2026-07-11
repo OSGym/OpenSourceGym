@@ -5,9 +5,10 @@ import { MongoClient, ObjectId } from "mongodb";
 import { ensureIndexes } from "../indexes.js";
 import {
   backfillLegacyUserPhones,
+  findActivePhoneConflictUserIds,
   hasActivePhoneConflict,
   PHONE_CONFLICT_COLLECTION,
-  reconcilePhoneConflictsAfterUserDeletion,
+  reconcilePhoneConflictsAfterUserChange,
 } from "../phoneBackfill.js";
 import { normalizePhoneToE164 } from "../phone.js";
 
@@ -97,6 +98,12 @@ test(
         [duplicateAId.toString(), duplicateBId.toString()].sort(),
       );
       assert.ok(conflict.firstDetectedAt instanceof Date);
+      assert.deepEqual(
+        (await findActivePhoneConflictUserIds(conflictPhone, database)).map(
+          (userId) => userId.toString(),
+        ),
+        [duplicateAId.toString(), duplicateBId.toString()].sort(),
+      );
 
       await ensureIndexes(database);
       const phoneIndex = (await users.indexes()).find(
@@ -125,7 +132,7 @@ test(
       );
 
       await users.deleteOne({ _id: duplicateBId });
-      await reconcilePhoneConflictsAfterUserDeletion(
+      await reconcilePhoneConflictsAfterUserChange(
         duplicateBId.toString(),
         database,
       );

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
+import {
+  findActivePhoneConflictUserIds,
+  PHONE_CONFLICT_COLLECTION,
+} from "../phoneBackfill.js";
+import { tryNormalizePhoneToE164 } from "../phone.js";
 import { buildUserSearchFilter, USER_SEARCH_LIMIT } from "../userSearch.js";
 
 const mongoUri = process.env.TEST_MONGODB_URI;
@@ -15,6 +20,8 @@ test(
       `opengym_search_${randomUUID().replaceAll("-", "")}`,
     );
     const users = database.collection("user");
+    const duplicateAId = new ObjectId();
+    const duplicateBId = new ObjectId();
 
     try {
       await client.connect();
@@ -35,14 +42,44 @@ test(
           phone: "+905551112233",
           phoneE164: "+905551112233",
         },
+        {
+          _id: duplicateAId,
+          name: "Legacy Bir",
+          firstName: "Legacy",
+          lastName: "Bir",
+          email: "legacy-one@example.com",
+          phone: "532 123 45 67",
+        },
+        {
+          _id: duplicateBId,
+          name: "Legacy İki",
+          firstName: "Legacy",
+          lastName: "İki",
+          email: "legacy-two@example.com",
+          phone: "+90 (532) 123-45-67",
+        },
       ]);
+      await database.collection(PHONE_CONFLICT_COLLECTION).insertOne({
+        _id: "+905321234567" as never,
+        phoneE164: "+905321234567",
+        active: true,
+        users: [
+          { userId: duplicateAId.toString() },
+          { userId: duplicateBId.toString() },
+        ],
+        firstDetectedAt: new Date(),
+      });
 
       async function emails(query: string): Promise<string[]> {
+        const phoneE164 = tryNormalizePhoneToE164(query);
+        const conflictUserIds = phoneE164
+          ? await findActivePhoneConflictUserIds(phoneE164, database)
+          : [];
         const docs = await users
-          .find(buildUserSearchFilter(query))
+          .find(buildUserSearchFilter(query, conflictUserIds))
           .limit(USER_SEARCH_LIMIT)
           .toArray();
-        return docs.map((doc) => String(doc.email));
+        return docs.map((doc) => String(doc.email)).sort();
       }
 
       assert.deepEqual(await emails("AYŞ"), ["ayse.yilmaz@example.com"]);
@@ -58,6 +95,14 @@ test(
       ]);
       assert.deepEqual(await emails("(0530) 123-45-67"), [
         "ayse.yilmaz@example.com",
+      ]);
+      assert.deepEqual(await emails("+905321234567"), [
+        "legacy-one@example.com",
+        "legacy-two@example.com",
+      ]);
+      assert.deepEqual(await emails("+90532123456x"), []);
+      assert.deepEqual(await emails("legacy-one@example"), [
+        "legacy-one@example.com",
       ]);
       assert.deepEqual(await emails("bulunmaz1"), []);
 

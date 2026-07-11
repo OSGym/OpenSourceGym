@@ -14,7 +14,10 @@ import {
   isInitialAdminSeedInput,
   INITIAL_ADMIN_PHONE,
 } from "./initialAdmin.js";
-import { hasActivePhoneConflict } from "./phoneBackfill.js";
+import {
+  hasActivePhoneConflict,
+  reconcilePhoneConflictsAfterUserChange,
+} from "./phoneBackfill.js";
 import {
   INVALID_PHONE_MESSAGE,
   InvalidPhoneNumberError,
@@ -54,7 +57,7 @@ function isPhoneIdentityDuplicateKey(error: unknown): boolean {
 }
 
 // Hook ön kontrolü kullanıcı dostu hata üretir; bu adapter sarmalayıcısı ise
-// iki kayıt aynı anda ön kontrolden geçtiğinde Mongo'nun atomik E11000
+// iki yazım aynı anda ön kontrolden geçtiğinde Mongo'nun atomik E11000
 // sonucunu aynı PHONE_ALREADY_EXISTS sözleşmesine çevirir.
 const baseDatabaseAdapter = mongodbAdapter(db);
 const databaseAdapter: typeof baseDatabaseAdapter = (options) => {
@@ -64,6 +67,16 @@ const databaseAdapter: typeof baseDatabaseAdapter = (options) => {
     async create(input) {
       try {
         return await adapter.create(input);
+      } catch (error) {
+        if (input.model === "user" && isPhoneIdentityDuplicateKey(error)) {
+          throw duplicatePhoneError();
+        }
+        throw error;
+      }
+    },
+    async update(input) {
+      try {
+        return await adapter.update(input);
       } catch (error) {
         if (input.model === "user" && isPhoneIdentityDuplicateKey(error)) {
           throw duplicatePhoneError();
@@ -218,6 +231,12 @@ export const auth = betterAuth({
             throw duplicatePhoneError();
           }
           return { data: { ...user, phone: phoneE164, phoneE164 } };
+        },
+        after: async (user) => {
+          const updated = user as typeof user & { id?: unknown };
+          if (typeof updated.id === "string") {
+            await reconcilePhoneConflictsAfterUserChange(updated.id);
+          }
         },
       },
     },

@@ -28,7 +28,10 @@ import {
   parseUserSearchQuery,
   USER_SEARCH_LIMIT,
 } from "../userSearch.js";
-import { reconcilePhoneConflictsAfterUserDeletion } from "../phoneBackfill.js";
+import {
+  findActivePhoneConflictUserIds,
+  reconcilePhoneConflictsAfterUserChange,
+} from "../phoneBackfill.js";
 
 export const adminRouter: Router = Router();
 
@@ -107,9 +110,13 @@ adminRouter.get("/users", requireRole("admin", "staff"), async (req, res) => {
     res.status(400).json({ message: "Arama için en az iki karakter girin." });
     return;
   }
+  const phoneE164 = tryNormalizePhoneToE164(query);
+  const conflictUserIds = phoneE164
+    ? await findActivePhoneConflictUserIds(phoneE164)
+    : [];
   const docs = await db
     .collection("user")
-    .find(buildUserSearchFilter(query))
+    .find(buildUserSearchFilter(query, conflictUserIds))
     .limit(USER_SEARCH_LIMIT)
     .toArray();
   res.json(docs.map((d) => toPublicUser(d as never)));
@@ -497,7 +504,7 @@ adminRouter.post(
 
     // Mükerrer telefon çatışma kayıtlarından silinen kullanıcının PII'sini
     // kaldırır; tek hesap kaldıysa onu E.164'e taşıyıp çatışma kaydını siler.
-    await reconcilePhoneConflictsAfterUserDeletion(targetIdStr);
+    await reconcilePhoneConflictsAfterUserChange(targetIdStr);
 
     await logAudit(req.user!, "kvkk-deletion-approved", targetIdStr);
     res.json({ ok: true });
