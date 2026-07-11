@@ -11,13 +11,17 @@ import { Button, styles } from "./src/ui";
 import { Login } from "./src/screens/Login";
 import { Register } from "./src/screens/Register";
 import { VerifyOtp } from "./src/screens/VerifyOtp";
+import { ForgotPassword } from "./src/screens/ForgotPassword";
+import { ResetPassword } from "./src/screens/ResetPassword";
 import { Home } from "./src/screens/Home";
 import { QrEntry } from "./src/screens/QrEntry";
 
 type Screen =
   | { name: "login" }
   | { name: "register" }
-  | { name: "verify"; email: string; password: string };
+  | { name: "verify"; email: string; password: string }
+  | { name: "forgot" }
+  | { name: "reset"; email: string };
 
 type HomeSubScreen = "home" | "qr";
 
@@ -97,6 +101,21 @@ export default function App() {
         onBack={() => setScreen({ name: "login" })}
       />
     );
+  } else if (screen.name === "forgot") {
+    body = (
+      <ForgotPassword
+        onBack={() => setScreen({ name: "login" })}
+        onSent={(email) => setScreen({ name: "reset", email })}
+      />
+    );
+  } else if (screen.name === "reset") {
+    body = (
+      <ResetPassword
+        email={screen.email}
+        onBack={() => setScreen({ name: "login" })}
+        onDone={() => setScreen({ name: "login" })}
+      />
+    );
   } else {
     body = (
       <Login
@@ -104,6 +123,7 @@ export default function App() {
         onNeedsVerification={(email, password) =>
           setScreen({ name: "verify", email, password })
         }
+        onForgot={() => setScreen({ name: "forgot" })}
       />
     );
   }
