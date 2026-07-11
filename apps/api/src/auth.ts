@@ -50,8 +50,23 @@ export const auth = betterAuth({
     // eder. revokeUserSessions() token'ları Mongo'dan (referans doğruluk)
     // okuduğundan bu listeye bağımlı değildir. mustChangePassword'a
     // dokunmaz — yalnızca oturum iptali için eklenmiştir.
+    // BetterAuth bu hook'u parola hash'i Mongo'ya yazıldıktan SONRA, kendi
+    // revokeSessionsOnPasswordReset fallback'inden (internalAdapter.
+    // deleteUserSessions) ÖNCE çalıştırır. revokeUserSessions() burada
+    // hata fırlatırsa tüm route iptal olur: kullanıcıya parola değişmedi
+    // izlenimi verilir (oysa hash zaten güncellendi) ve BetterAuth'un
+    // kendi fallback oturum iptali de hiç çalışmaz. Bu yüzden hatayı
+    // yutup yalnızca logluyoruz; böylece istek başarıyla döner ve
+    // fallback devreye girip oturumları temizler.
     onPasswordReset: async ({ user }) => {
-      await revokeUserSessions(user.id);
+      try {
+        await revokeUserSessions(user.id);
+      } catch (err) {
+        console.error(
+          "onPasswordReset: revokeUserSessions başarısız oldu",
+          err,
+        );
+      }
     },
   },
 

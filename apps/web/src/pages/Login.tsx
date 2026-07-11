@@ -108,16 +108,42 @@ export function Login() {
     setInfo(null);
   }
 
+  function forgotErrorMessage(err: unknown): string {
+    if (err instanceof ApiError && err.status === 429) {
+      return "Çok fazla deneme. Lütfen bir dakika bekleyin.";
+    }
+    return "İstek gönderilemedi. Lütfen tekrar deneyin.";
+  }
+
+  async function requestResetCode() {
+    await authApi("/email-otp/request-password-reset", { email });
+  }
+
   async function submitForgot(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await authApi("/email-otp/request-password-reset", { email });
+      await requestResetCode();
       setInfo("Şifre sıfırlama kodu e-postanıza gönderildi.");
       setStep("reset");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "İstek gönderilemedi.");
+      setError(forgotErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resendResetCode() {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await requestResetCode();
+      setResetOtp("");
+      setInfo("Yeni kod e-postanıza gönderildi.");
+    } catch (err) {
+      setError(forgotErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -126,6 +152,7 @@ export function Login() {
   async function submitReset(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setInfo(null);
     if (newPassword.length < 8) {
       setError("Şifre en az 8 karakter olmalı.");
       return;
@@ -229,7 +256,7 @@ export function Login() {
               id="reset-email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              readOnly
               autoComplete="username"
               required
             />
@@ -271,7 +298,10 @@ export function Login() {
           <button type="submit" disabled={busy} style={{ width: "100%" }}>
             {busy ? "Güncelleniyor…" : "Şifreyi güncelle"}
           </button>
-          <div className="row" style={{ marginTop: 16 }}>
+          <div
+            className="row"
+            style={{ marginTop: 16, justifyContent: "space-between" }}
+          >
             <button
               type="button"
               className="link-btn"
@@ -279,6 +309,14 @@ export function Login() {
               disabled={busy}
             >
               Geri
+            </button>
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => void resendResetCode()}
+              disabled={busy}
+            >
+              Kodu tekrar gönder
             </button>
           </div>
         </form>
