@@ -12,6 +12,7 @@ export interface SessionUser {
   mustChangePassword: boolean;
   /** MFA (iki aşamalı doğrulama) etkin mi — Faz 5 */
   twoFactorEnabled: boolean;
+  profilePhotoUrl: string | null;
 }
 
 export function useSessionUser() {

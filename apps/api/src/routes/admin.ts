@@ -16,6 +16,10 @@ import { logAudit } from "../audit.js";
 import { requireRole } from "../middleware.js";
 import { markOutside } from "../occupancy.js";
 import { revokeUserSessions } from "../sessions.js";
+import {
+  buildProfilePhotoUrl,
+  deleteUserProfilePhotoForAccountDeletion,
+} from "../profilePhoto.js";
 import { SHARING_DEFAULTS } from "../sharing.js";
 import {
   createSequentialSubscription,
@@ -46,6 +50,8 @@ function toPublicUser(doc: {
   role?: string;
   emailVerified?: boolean;
   twoFactorEnabled?: boolean;
+  profilePhotoKey?: string;
+  profilePhotoUpdatedAt?: Date;
   createdAt?: Date;
 }): PublicUser {
   return {
@@ -59,6 +65,10 @@ function toPublicUser(doc: {
     role: (doc.role ?? "member") as Role,
     emailVerified: doc.emailVerified ?? false,
     twoFactorEnabled: doc.twoFactorEnabled ?? false,
+    profilePhotoUrl: buildProfilePhotoUrl(
+      doc.profilePhotoKey,
+      doc.profilePhotoUpdatedAt,
+    ),
     createdAt: doc.createdAt?.toISOString() ?? "",
   };
 }
@@ -467,6 +477,17 @@ adminRouter.post(
     // Kullanıcının tüm oturumları (Redis + Mongo) iptal edilir; uygulama
     // rotaları zaten middleware'in Mongo re-read'iyle 401'e düşer
     await revokeUserSessions(targetIdStr);
+
+    try {
+      await deleteUserProfilePhotoForAccountDeletion(targetIdStr);
+    } catch (error) {
+      console.error("KVKK profil fotoğrafı silinemedi", error);
+      res.status(503).json({
+        message:
+          "Profil fotoğrafı depolama alanından silinemedi. Lütfen tekrar deneyin.",
+      });
+      return;
+    }
 
     await db.collection("user").deleteOne({ _id: targetId });
     await db.collection("account").deleteMany({ userId: targetId });

@@ -12,6 +12,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1085.0",
     "@better-auth/expo": "^1.6.23",
     "@opengym/shared": "workspace:*",
     "better-auth": "^1.6.23",
@@ -20,6 +21,7 @@
     "mongodb": "^7.4.0",
     "nodemailer": "^9.0.3",
     "redis": "^6.1.0",
+    "sharp": "^0.35.3",
     "ws": "^8.18.0",
     "zod": "^4.4.3"
   },

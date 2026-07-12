@@ -150,3 +150,16 @@
 - 24 saatte ≥3 sinyal birikince oturumlar otomatik iptal + QR 24 saat geçici kilitlenir (`SHARING_BLOCKED`); 24 saat sonra otomatik açılır.
 - Tüm eşikler (`memberMaxSessions`, `staffMaxSessions`, `signalThreshold`, `signalWindowHours`, `qrBlockHours`) admin panelinde Ayarlar sayfasından yapılandırılabilir.
 - Repo lint/typecheck/build yeşil.
+
+---
+
+## Faz 7 — Üye Profil Fotoğrafı
+
+**Hedef:** Üyenin mobil uygulamadan profil fotoğrafı ekleyebilmesi ve fotoğrafın
+personel panelinde görüntülenebilmesi.
+
+- [x] Galeriden kare fotoğraf seçme, değiştirme ve kaldırma akışı
+- [x] API tarafında 10 MB sınırı, güvenli görsel doğrulama ve 1024×1024 JPEG normalizasyonu
+- [x] Cloudflare R2 saklama, public CDN URL'si ve KVKK hesap silme temizliği
+- [x] Mobil ana ekran ve personel üye aramasında avatar/fallback gösterimi
+- [x] Backend testleri, lint, typecheck ve build doğrulaması

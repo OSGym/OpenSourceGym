@@ -31,6 +31,14 @@
     "plugins": [
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Profil fotoğrafı seçebilmeniz için galeri erişimi gereklidir.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "Konumunuz yalnızca salonda olduğunuzu doğrulamak için kullanılır."

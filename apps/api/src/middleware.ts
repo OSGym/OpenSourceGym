@@ -1,18 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import { ObjectId } from "mongodb";
 import { fromNodeHeaders } from "better-auth/node";
-import type { Role } from "@opengym/shared";
+import type { MyProfile, Role } from "@opengym/shared";
 import { auth } from "./auth.js";
 import { db } from "./db.js";
+import { buildProfilePhotoUrl } from "./profilePhoto.js";
 
-export interface SessionUser {
-  id: string;
-  email: string;
-  name: string;
-  role: Role;
-  mustChangePassword: boolean;
-  twoFactorEnabled: boolean;
-}
+export type SessionUser = MyProfile;
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -51,6 +45,10 @@ export function requireRole(...roles: Role[]) {
       role: (doc.role ?? "member") as Role,
       mustChangePassword: doc.mustChangePassword ?? false,
       twoFactorEnabled: doc.twoFactorEnabled ?? false,
+      profilePhotoUrl: buildProfilePhotoUrl(
+        doc.profilePhotoKey,
+        doc.profilePhotoUpdatedAt,
+      ),
     };
     if (!roles.includes(user.role)) {
       res.status(403).json({ message: "Bu işlem için yetkiniz yok." });

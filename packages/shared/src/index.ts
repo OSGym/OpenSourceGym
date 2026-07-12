@@ -17,7 +17,22 @@ export interface PublicUser {
   emailVerified: boolean;
   /** MFA (iki aşamalı doğrulama) etkin mi — Faz 5 */
   twoFactorEnabled: boolean;
+  profilePhotoUrl: string | null;
   createdAt: string;
+}
+
+export interface MyProfile {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  mustChangePassword: boolean;
+  twoFactorEnabled: boolean;
+  profilePhotoUrl: string | null;
+}
+
+export interface ProfilePhotoResponse {
+  profilePhotoUrl: string | null;
 }
 
 export interface Subscription {

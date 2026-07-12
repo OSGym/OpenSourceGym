@@ -12,6 +12,36 @@ import { useProfile } from "../lib/profile";
 const fmt = (iso: string) => new Date(iso).toLocaleDateString("tr-TR");
 const subscriptionMonthOptions: readonly SubscriptionMonths[] = [1, 3, 6, 12];
 
+function MemberAvatar({
+  member,
+  large = false,
+}: {
+  member: PublicUser;
+  large?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  const initials =
+    `${member.firstName[0] ?? ""}${member.lastName[0] ?? ""}`.toLocaleUpperCase(
+      "tr-TR",
+    ) || "Ü";
+  return (
+    <span
+      className={`member-avatar${large ? " member-avatar-large" : ""}`}
+      aria-label={`${member.firstName} ${member.lastName} profil fotoğrafı`}
+    >
+      {member.profilePhotoUrl && !failed ? (
+        <img
+          src={member.profilePhotoUrl}
+          alt=""
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        initials
+      )}
+    </span>
+  );
+}
+
 function subscriptionStatus(subscription: Subscription): {
   label: string;
   className: string;
@@ -65,9 +95,12 @@ function SubscriptionPanel({ member }: { member: PublicUser }) {
 
   return (
     <div className="panel">
-      <h2>
-        Abonelik — {member.firstName} {member.lastName}
-      </h2>
+      <div className="member-detail-heading">
+        <MemberAvatar member={member} large />
+        <h2>
+          Abonelik — {member.firstName} {member.lastName}
+        </h2>
+      </div>
       {msg && <div className={`msg ${msg.kind}`}>{msg.text}</div>}
       <div className="row" style={{ marginBottom: 18 }}>
         <div className="field">
@@ -284,7 +317,12 @@ export function Members() {
               {results.map((u) => (
                 <tr key={u.id}>
                   <td>
-                    {u.firstName} {u.lastName}
+                    <div className="member-identity">
+                      <MemberAvatar member={u} />
+                      <span>
+                        {u.firstName} {u.lastName}
+                      </span>
+                    </div>
                   </td>
                   <td>{u.phone}</td>
                   <td>{u.email}</td>
