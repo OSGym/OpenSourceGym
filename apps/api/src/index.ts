@@ -15,6 +15,7 @@ import { attachDeviceGateway } from "./gateway.js";
 import { startEntryEventConsumer } from "./eventQueue.js";
 import { backfillLegacyUserPhones } from "./phoneBackfill.js";
 import { repairLegacySubscriptionOverlaps } from "./subscriptions.js";
+import { assertProductionProfilePhotoConfig } from "./profilePhoto.js";
 
 const app = express();
 
@@ -36,9 +37,33 @@ app.get("/health", (_req, res) => {
   res.json(body);
 });
 
+app.use(
+  (
+    error: unknown,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "type" in error &&
+      error.type === "entity.too.large" &&
+      req.originalUrl.startsWith("/api/me/profile-photo")
+    ) {
+      res.status(413).json({
+        message: "Fotoğraf en fazla 10 MB olabilir.",
+      });
+      return;
+    }
+    next(error);
+  },
+);
+
 const server = createServer(app);
 
 async function main() {
+  assertProductionProfilePhotoConfig();
   await mongoClient.connect();
   await backfillLegacyUserPhones();
   await ensureIndexes();

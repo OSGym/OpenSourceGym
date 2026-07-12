@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import { createHash } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
@@ -7,6 +7,7 @@ import type {
   MyDeletionRequest,
   MySubscription,
   OccupancyResponse,
+  ProfilePhotoResponse,
   QrTokenResponse,
 } from "@opengym/shared";
 import { db } from "../db.js";
@@ -22,6 +23,14 @@ import { isAnyDeviceOnline } from "../gateway.js";
 import { getOccupancy } from "../occupancy.js";
 import { logAudit } from "../audit.js";
 import { isQrBlocked, recordSharingSignal, QR_LOC_KEY } from "../sharing.js";
+import {
+  ProfilePhotoBusyError,
+  ProfilePhotoConfigError,
+  ProfilePhotoInputError,
+  ProfilePhotoRateLimitError,
+  removeUserProfilePhoto,
+  storeUserProfilePhoto,
+} from "../profilePhoto.js";
 
 export const meRouter: Router = Router();
 
@@ -33,6 +42,72 @@ meRouter.get(
     res.json(req.user);
   },
 );
+
+// Üyenin kendi profil fotoğrafı: API görseli normalize edip R2'ye yazar.
+meRouter.put(
+  "/profile-photo",
+  requireRole("member"),
+  express.raw({ type: "*/*", limit: "10mb" }),
+  async (req, res) => {
+    if (!Buffer.isBuffer(req.body)) {
+      res.status(400).json({ message: "Fotoğraf verisi gönderilmedi." });
+      return;
+    }
+    try {
+      const profilePhotoUrl = await storeUserProfilePhoto(
+        req.user!.id,
+        req.body,
+        req.header("content-type") ?? "",
+      );
+      await logAudit(req.user!, "profile-photo-updated", req.user!.id);
+      const body: ProfilePhotoResponse = { profilePhotoUrl };
+      res.json(body);
+    } catch (error) {
+      if (error instanceof ProfilePhotoInputError) {
+        res.status(400).json({ message: error.message });
+        return;
+      }
+      if (error instanceof ProfilePhotoBusyError) {
+        res.status(409).json({ message: error.message });
+        return;
+      }
+      if (error instanceof ProfilePhotoRateLimitError) {
+        res.status(429).json({ message: error.message });
+        return;
+      }
+      if (error instanceof ProfilePhotoConfigError) {
+        res.status(503).json({ message: error.message });
+        return;
+      }
+      console.error("Profil fotoğrafı yüklenemedi", error);
+      res.status(503).json({
+        message: "Profil fotoğrafı yüklenemedi. Lütfen tekrar deneyin.",
+      });
+    }
+  },
+);
+
+meRouter.delete("/profile-photo", requireRole("member"), async (req, res) => {
+  try {
+    await removeUserProfilePhoto(req.user!.id);
+    await logAudit(req.user!, "profile-photo-removed", req.user!.id);
+    const body: ProfilePhotoResponse = { profilePhotoUrl: null };
+    res.json(body);
+  } catch (error) {
+    if (error instanceof ProfilePhotoBusyError) {
+      res.status(409).json({ message: error.message });
+      return;
+    }
+    if (error instanceof ProfilePhotoConfigError) {
+      res.status(503).json({ message: error.message });
+      return;
+    }
+    console.error("Profil fotoğrafı kaldırılamadı", error);
+    res.status(503).json({
+      message: "Profil fotoğrafı kaldırılamadı. Lütfen tekrar deneyin.",
+    });
+  }
+});
 
 // US-4: üyenin kendi abonelik durumu (mobil ana ekran)
 meRouter.get(

@@ -32,7 +32,42 @@ export async function api<T>(
   if (!res.ok) {
     throw new ApiError(
       res.status,
-      (data as { message?: string }).message ?? `İstek başarısız (${res.status})`,
+      (data as { message?: string }).message ??
+        `İstek başarısız (${res.status})`,
+      (data as { code?: string }).code,
+    );
+  }
+  return data as T;
+}
+
+export async function uploadBinary<T>(
+  path: string,
+  uri: string,
+  contentType: string,
+): Promise<T> {
+  const [fp, localResponse] = await Promise.all([
+    getDeviceFingerprint(),
+    fetch(uri),
+  ]);
+  if (!localResponse.ok) {
+    throw new Error("Seçilen fotoğraf okunamadı.");
+  }
+  const body = await localResponse.blob();
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "PUT",
+    headers: {
+      Cookie: authClient.getCookie(),
+      "Content-Type": contentType,
+      ...(fp ? { "X-Device-Fingerprint": fp } : {}),
+    },
+    body,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      (data as { message?: string }).message ??
+        `İstek başarısız (${res.status})`,
       (data as { code?: string }).code,
     );
   }
