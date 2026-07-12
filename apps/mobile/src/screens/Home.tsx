@@ -98,7 +98,9 @@ export function Home({
     setPhotoBusy(true);
     try {
       const context = ImageManipulator.manipulate(selected.assets[0].uri);
-      context.resize({ width: 1024, height: 1024 });
+      // Tek boyut ver: iki boyut vermek görseli 1024×1024'e esnetir (stretch);
+      // kare kırpma sunucudaki fit: "cover" normalizasyonuna bırakılır.
+      context.resize({ width: 1024 });
       const rendered = await context.renderAsync();
       const normalized = await rendered.saveAsync({
         format: SaveFormat.JPEG,

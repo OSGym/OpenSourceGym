@@ -27,6 +27,7 @@ import {
   ProfilePhotoBusyError,
   ProfilePhotoConfigError,
   ProfilePhotoInputError,
+  ProfilePhotoRateLimitError,
   removeUserProfilePhoto,
   storeUserProfilePhoto,
 } from "../profilePhoto.js";
@@ -68,6 +69,10 @@ meRouter.put(
       }
       if (error instanceof ProfilePhotoBusyError) {
         res.status(409).json({ message: error.message });
+        return;
+      }
+      if (error instanceof ProfilePhotoRateLimitError) {
+        res.status(429).json({ message: error.message });
         return;
       }
       if (error instanceof ProfilePhotoConfigError) {

@@ -13,6 +13,11 @@ import { redis } from "./redis.js";
 const MAX_INPUT_PIXELS = 40_000_000;
 const PROFILE_PHOTO_SIZE = 1024;
 const PROFILE_PHOTO_LOCK_TTL_MS = 30_000;
+// BetterAuth rate limit'i yalnızca /api/auth/* kapsar; görsel işleme (sharp,
+// CPU) ve R2 PUT (ücretli class-A operasyon) maliyetli olduğundan yükleme ucu
+// kullanıcı başına ayrıca sınırlanır.
+const PROFILE_PHOTO_UPLOADS_PER_WINDOW = 10;
+const PROFILE_PHOTO_RATE_WINDOW_SECONDS = 3600;
 
 const inputFormats = new Map([
   ["image/jpeg", "jpeg"],
@@ -23,6 +28,7 @@ const inputFormats = new Map([
 export class ProfilePhotoInputError extends Error {}
 export class ProfilePhotoConfigError extends Error {}
 export class ProfilePhotoBusyError extends Error {}
+export class ProfilePhotoRateLimitError extends Error {}
 
 interface R2Config {
   accountId: string;
@@ -202,12 +208,28 @@ async function withProfilePhotoLock<T>(
   }
 }
 
+export async function enforceProfilePhotoRateLimit(
+  userId: string,
+): Promise<void> {
+  const key = `og:rl:profile-photo:${userId}`;
+  const count = await redis.incr(key);
+  // NX: TTL yalnızca yoksa yazılır; incr/expire arasında çökme olursa
+  // anahtarın süresiz kalmasını sonraki istek onarır.
+  await redis.expire(key, PROFILE_PHOTO_RATE_WINDOW_SECONDS, "NX");
+  if (count > PROFILE_PHOTO_UPLOADS_PER_WINDOW) {
+    throw new ProfilePhotoRateLimitError(
+      "Çok fazla fotoğraf yükleme denemesi yapıldı. Lütfen daha sonra tekrar deneyin.",
+    );
+  }
+}
+
 export async function storeUserProfilePhoto(
   userId: string,
   input: Buffer,
   contentType: string,
 ): Promise<string> {
   getR2Config();
+  await enforceProfilePhotoRateLimit(userId);
   const processed = await processProfilePhoto(input, contentType);
 
   return withProfilePhotoLock(userId, async () => {

@@ -1,19 +1,11 @@
 import { createAuthClient } from "better-auth/react";
+import type { MyProfile } from "@opengym/shared";
 
 export const authClient = createAuthClient({
   baseURL: window.location.origin,
 });
 
-export interface SessionUser {
-  id: string;
-  email: string;
-  name: string;
-  role: "admin" | "staff" | "member";
-  mustChangePassword: boolean;
-  /** MFA (iki aşamalı doğrulama) etkin mi — Faz 5 */
-  twoFactorEnabled: boolean;
-  profilePhotoUrl: string | null;
-}
+export type SessionUser = MyProfile;
 
 export function useSessionUser() {
   const { data, isPending, refetch } = authClient.useSession();

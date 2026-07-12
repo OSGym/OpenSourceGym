@@ -25,14 +25,11 @@ function MemberAvatar({
       "tr-TR",
     ) || "Ü";
   return (
-    <span
-      className={`member-avatar${large ? " member-avatar-large" : ""}`}
-      aria-label={`${member.firstName} ${member.lastName} profil fotoğrafı`}
-    >
+    <span className={`member-avatar${large ? " member-avatar-large" : ""}`}>
       {member.profilePhotoUrl && !failed ? (
         <img
           src={member.profilePhotoUrl}
-          alt=""
+          alt={`${member.firstName} ${member.lastName} profil fotoğrafı`}
           onError={() => setFailed(true)}
         />
       ) : (
