@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { authApi, ApiError } from "../lib/api";
 import { useSessionUser } from "../lib/auth";
+import { AuthLayout } from "../components/AuthLayout";
 
 type Step = "password" | "code" | "forgot" | "reset";
 type Method = "totp" | "otp";
@@ -200,8 +201,8 @@ export function Login() {
 
   if (step === "forgot") {
     return (
-      <div className="auth-wrap">
-        <form className="auth-card" onSubmit={submitForgot}>
+      <AuthLayout>
+        <form onSubmit={submitForgot}>
           <h1>
             Open
             <em style={{ color: "var(--accent)", fontStyle: "normal" }}>Gym</em>
@@ -235,14 +236,14 @@ export function Login() {
             </button>
           </div>
         </form>
-      </div>
+      </AuthLayout>
     );
   }
 
   if (step === "reset") {
     return (
-      <div className="auth-wrap">
-        <form className="auth-card" onSubmit={submitReset}>
+      <AuthLayout>
+        <form onSubmit={submitReset}>
           <h1>
             Open
             <em style={{ color: "var(--accent)", fontStyle: "normal" }}>Gym</em>
@@ -320,14 +321,14 @@ export function Login() {
             </button>
           </div>
         </form>
-      </div>
+      </AuthLayout>
     );
   }
 
   if (step === "code") {
     return (
-      <div className="auth-wrap">
-        <form className="auth-card" onSubmit={submitCode}>
+      <AuthLayout>
+        <form onSubmit={submitCode}>
           <h1>
             Open
             <em style={{ color: "var(--accent)", fontStyle: "normal" }}>Gym</em>
@@ -373,13 +374,13 @@ export function Login() {
             )}
           </div>
         </form>
-      </div>
+      </AuthLayout>
     );
   }
 
   return (
-    <div className="auth-wrap">
-      <form className="auth-card" onSubmit={submitPassword}>
+    <AuthLayout>
+      <form onSubmit={submitPassword}>
         <h1>
           Open
           <em style={{ color: "var(--accent)", fontStyle: "normal" }}>Gym</em>
@@ -426,6 +427,6 @@ export function Login() {
           </button>
         </div>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

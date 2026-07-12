@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../lib/api";
+import { AuthLayout } from "../components/AuthLayout";
 
 export function ChangePassword({ onDone }: { onDone: () => void }) {
   const [current, setCurrent] = useState("");
@@ -34,8 +35,8 @@ export function ChangePassword({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="auth-wrap">
-      <form className="auth-card" onSubmit={submit}>
+    <AuthLayout>
+      <form onSubmit={submit}>
         <h1>Şifre değiştir</h1>
         <p className="sub">
           Güvenlik gereği devam etmeden önce varsayılan şifrenizi
@@ -79,6 +80,6 @@ export function ChangePassword({ onDone }: { onDone: () => void }) {
           {busy ? "Kaydediliyor…" : "Şifreyi değiştir"}
         </button>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

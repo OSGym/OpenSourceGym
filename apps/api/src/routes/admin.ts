@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import type {
+  AdminStats,
   DeletionRequest,
   EntryEvent,
   GymSettings,
@@ -376,6 +377,25 @@ adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
     ...(setDoc.sharing !== undefined ? { sharing: setDoc.sharing } : {}),
   });
   res.json({ ok: true });
+});
+
+// Genel bakış paneli KPI'ları (personel + admin)
+adminRouter.get("/stats", requireRole("admin", "staff"), async (_req, res) => {
+  const now = new Date();
+  const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const subs = db.collection("subscriptions");
+  const [activeMembers, renewalsDue] = await Promise.all([
+    subs.distinct("userId", { startsAt: { $lte: now }, endsAt: { $gte: now } }),
+    subs.distinct("userId", {
+      startsAt: { $lte: now },
+      endsAt: { $gte: now, $lte: in7d },
+    }),
+  ]);
+  const body: AdminStats = {
+    activeMembers: activeMembers.length,
+    renewalsDue: renewalsDue.length,
+  };
+  res.json(body);
 });
 
 // Audit log görüntüleme (yalnızca admin)

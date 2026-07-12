@@ -169,6 +169,14 @@ export interface OccupancyResponse {
   ratio: number | null;
 }
 
+/** Yönetim paneli genel bakış KPI'ları */
+export interface AdminStats {
+  /** Şu an aktif aboneliği olan benzersiz üye sayısı */
+  activeMembers: number;
+  /** Aboneliği önümüzdeki 7 gün içinde sona erecek benzersiz üye sayısı */
+  renewalsDue: number;
+}
+
 /** KVKK hesap silme talebi (panel listesi) */
 export interface DeletionRequest {
   id: string;
