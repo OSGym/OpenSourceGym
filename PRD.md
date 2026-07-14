@@ -78,11 +78,11 @@ OpenGym: modern, self-hosted, açık kaynak bir spor salonu otomasyon sistemi (m
 
 #### US-5: QR ile Turnike Geçişi
 
-> Üye olarak, telefonumdaki QR kodu okutup turnikeden geçmek istiyorum ki kart/anahtarlık taşımayayım.
+> Üye olarak, turnikeye yapıştırılmış QR'ı telefonumla okutup turnikeden geçmek istiyorum ki kart/anahtarlık taşımayayım.
 
 **Kabul Kriterleri:**
 
-- QR okutulduğunda backend'e istek gider; backend doğrulama sonrası turnikenin bağlı olduğu WebSocket kanalına açma sinyali gönderir.
+- Gate-scan isteği gönderildiğinde (turnikeye yapıştırılmış statik QR okunduğunda), backend doğrulama sonrası turnikenin bağlı olduğu WebSocket kanalına açma sinyali gönderir.
 - **Red koşulları:**
     - Aktif aboneliği yoksa → istek reddedilir, kullanıcıya nedeni gösterilir.
     - Konumu salon koordinatlarında değilse → istek reddedilir.
@@ -144,10 +144,10 @@ OpenGym Backend
      Turnike A              Turnike B
 ```
 
-**QR geçiş veri akışı:**
+**Gate-scan (QR geçiş) veri akışı:**
 
-1. Mobil uygulama QR okutur, backend'e POST isteği gönderir.
-2. Backend abonelik + konum doğrulaması yapar.
+1. Mobil uygulama turnikeye yapıştırılmış statik QR'ı okutur, backend'e POST isteği (gate-scan endpoint) gönderir.
+2. Backend abonelik + konum + hesap paylaşımı + cihaz durumu doğrulaması yapar.
 3. Doğrulama geçerse Device Gateway, ilgili turnikenin agent'ına WebSocket üzerinden açma sinyali yollar.
 4. Agent röleyi tetikler, turnike açılır; sonuç Event Queue'ya loglanır.
 
@@ -196,7 +196,7 @@ OpenGym Backend
 | Risk                          | Etki                                   | Önlem                                                                                        |
 | ----------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------- |
 | WebSocket bağlantı kopması    | Üyeler turnikeden geçemez              | Agent'ta otomatik yeniden bağlanma + backend'de bağlantı durumu izleme; fail-closed davranış |
-| Konum spoofing (sahte GPS)    | Salon dışından turnike tetikleme       | Android'de `mocked` bayrağı QR token isteğinde sunucuya gönderiliyor; mock location algılanırsa QR üretimi reddediliyor (`MOCK_LOCATION` hata kodu). iOS'ta bu bayrak desteklenmiyor (bilinen sınırlama). Parmak izi churn ve konum tutarsızlığı sinyalleri tamamlayıcı kontrol sağlıyor; v2.0'da ek sinyaller uygulanmıştır. |
+| Konum spoofing (sahte GPS)    | Salon dışından turnike tetikleme       | Android'de `mocked` bayrağı gate-scan isteğinde sunucuya gönderiliyor; mock location algılanırsa gate-scan reddediliyor (`MOCK_LOCATION` hata kodu). iOS'ta bu bayrak desteklenmiyor (bilinen sınırlama). Parmak izi churn ve konum tutarsızlığı sinyalleri tamamlayıcı kontrol sağlıyor; v2.0'da ek sinyaller uygulanmıştır. |
 | SMTP teslimat sorunları       | Üye kaydı/MFA tıkanır                  | Kod yeniden gönderme + teslimat hatalarının panelde görünürlüğü                              |
 | Self-hosted ortam çeşitliliği | Kurulum hataları, destek yükü          | Docker Compose ile standart kurulum, KPI-3 (< 30 dk) hedefi                                  |
 | `admin:admin` varsayılanı     | Kurulum sonrası unutulursa kritik açık | Zorunlu şifre değişimi atlanamaz (US-2); değiştirilmeden hiçbir uç çalışmaz                  |

@@ -188,6 +188,7 @@ describe("mobil abonelik özeti", () => {
     );
 
     assert.equal(summary.active, true);
+    assert.equal(summary.startsAt?.toISOString(), "2025-01-01T00:00:00.000Z");
     assert.equal(summary.endsAt?.toISOString(), "2025-04-01T00:00:00.000Z");
     assert.equal(summary.remainingDays, 76);
   });
@@ -203,7 +204,7 @@ describe("mobil abonelik özeti", () => {
         ],
         new Date("2025-01-15T00:00:00.000Z"),
       ),
-      { active: false, endsAt: null, remainingDays: 0 },
+      { active: false, startsAt: null, endsAt: null, remainingDays: 0 },
     );
   });
 });

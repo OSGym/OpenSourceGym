@@ -5,12 +5,12 @@
 //   - "ArduinoJson" >= 7
 //
 // Donanım varsayımı:
-//   - QR okuyucu modül (GM65/GM805 vb.) UART2'de: okuyucu TX -> GPIO16 (RX2),
-//     9600 baud, okunan kod satır sonu (\n) ile biter.
 //   - Röle modülü GPIO26'da (aktif HIGH), turnike tetik girişini sürer.
+//   - QR taraması artık cihazda değil, üyenin telefon uygulamasında yapılır;
+//     bu ajan yalnızca kimlik doğrular ve sunucudan gelen "open" komutuyla röleyi tetikler.
 //
-// Fail-closed: röle varsayılan LOW; yalnızca sunucudan allow geldiğinde
-// openMs süresince HIGH. WiFi/sunucu yokken hiçbir tarama kapı açmaz.
+// Fail-closed: röle varsayılan LOW; yalnızca sunucudan "open" geldiğinde
+// openMs süresince HIGH. WiFi/sunucu yokken röle hiç tetiklenmez.
 
 #include <WiFi.h>
 #include <WebSocketsClient.h>
@@ -30,9 +30,7 @@ const unsigned long DEFAULT_OPEN_MS = 500;
 // ------------------------------------------------------
 
 WebSocketsClient webSocket;
-bool authed = false;
 unsigned long relayOffAt = 0;  // 0 = röle kapalı/bekleyen kapama yok
-String scanBuffer;
 
 void sendAuth() {
   JsonDocument doc;
@@ -56,19 +54,12 @@ void onMessage(uint8_t* payload, size_t length) {
   if (!type) return;
 
   if (strcmp(type, "auth_ok") == 0) {
-    authed = true;
     Serial.printf("[bagli] cihaz: %s\n", (const char*)(doc["deviceName"] | "?"));
   } else if (strcmp(type, "auth_error") == 0) {
-    authed = false;
     Serial.printf("[kimlik hatasi] %s\n", (const char*)(doc["message"] | "?"));
-  } else if (strcmp(type, "scan_result") == 0) {
-    if (doc["allow"] == true) {
-      Serial.printf("ACIK  uye: %s\n", (const char*)(doc["memberName"] | "?"));
-      openRelay(doc["openMs"] | DEFAULT_OPEN_MS);
-    } else {
-      Serial.printf("RED   neden: %s — role kapali (fail-closed)\n",
-                    (const char*)(doc["reason"] | "?"));
-    }
+  } else if (strcmp(type, "open") == 0) {
+    Serial.println("ACIK");
+    openRelay(doc["openMs"] | DEFAULT_OPEN_MS);
   }
 }
 
@@ -78,7 +69,6 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
       sendAuth();
       break;
     case WStype_DISCONNECTED:
-      authed = false;
       Serial.println("[koptu] yeniden baglaniliyor...");
       break;
     case WStype_TEXT:
@@ -89,25 +79,11 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
   }
 }
 
-void sendScan(const String& qr) {
-  if (!authed) {
-    Serial.println("RED   sunucu bagli degil (fail-closed)");
-    return;
-  }
-  JsonDocument doc;
-  doc["type"] = "scan";
-  doc["qr"] = qr;
-  String out;
-  serializeJson(doc, out);
-  webSocket.sendTXT(out);
-}
-
 void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);  // açılışta röle kapalı (fail-closed)
 
   Serial.begin(115200);
-  Serial2.begin(9600, SERIAL_8N1, 16, 17);  // QR okuyucu UART2
 
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   while (WiFi.status() != WL_CONNECTED) {
@@ -129,18 +105,5 @@ void loop() {
   if (relayOffAt != 0 && (long)(millis() - relayOffAt) >= 0) {
     digitalWrite(RELAY_PIN, LOW);
     relayOffAt = 0;
-  }
-
-  // QR okuyucudan satır oku
-  while (Serial2.available()) {
-    char c = (char)Serial2.read();
-    if (c == '\n' || c == '\r') {
-      if (scanBuffer.length() > 0) {
-        sendScan(scanBuffer);
-        scanBuffer = "";
-      }
-    } else if (scanBuffer.length() < 512) {
-      scanBuffer += c;
-    }
   }
 }

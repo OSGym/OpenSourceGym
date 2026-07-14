@@ -8,24 +8,31 @@
     "better-auth": "^1.6.23",
     "expo": "~57.0.2",
     "expo-application": "~57.0.0",
+    "expo-camera": "~57.0.1",
     "expo-constants": "~57.0.3",
     "expo-crypto": "~57.0.0",
     "expo-dev-client": "~57.0.5",
     "expo-device": "~57.0.0",
+    "expo-haptics": "~57.0.0",
     "expo-image-manipulator": "~57.0.2",
     "expo-image-picker": "~57.0.2",
     "expo-linking": "~57.0.1",
+    "expo-localization": "~57.0.0",
     "expo-location": "~57.0.2",
     "expo-network": "~57.0.0",
     "expo-secure-store": "~57.0.0",
     "expo-status-bar": "~57.0.0",
+    "i18next": "^26.3.6",
     "react": "19.2.3",
+    "react-i18next": "^17.0.9",
     "react-native": "0.86.0",
-    "react-native-qrcode-svg": "^6.3.21",
-    "react-native-svg": "15.15.4"
+    "react-native-safe-area-context": "~5.7.0"
   },
   "devDependencies": {
+    "@expo/config-plugins": "^57.0.3",
+    "@types/node": "^26.1.1",
     "@types/react": "~19.2.2",
+    "tsx": "^4.23.1",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -33,6 +40,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "test": "tsx --test src/*.test.ts src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
   },

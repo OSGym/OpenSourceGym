@@ -23,6 +23,7 @@ export interface SubscriptionPeriod {
 
 export interface SubscriptionSummary {
   active: boolean;
+  startsAt: Date | null;
   endsAt: Date | null;
   remainingDays: number;
 }
@@ -124,11 +125,13 @@ export function summarizeSubscriptionTimeline(
       left.startsAt.getTime() - right.startsAt.getTime() ||
       left.endsAt.getTime() - right.endsAt.getTime(),
   );
+  let entitlementStartsAt: Date | null = null;
   let entitlementEndsAt: Date | null = null;
 
   for (const record of sorted) {
     if (entitlementEndsAt === null) {
       if (record.startsAt <= now && record.endsAt >= now) {
+        entitlementStartsAt = new Date(record.startsAt.getTime());
         entitlementEndsAt = new Date(record.endsAt.getTime());
       }
       continue;
@@ -141,11 +144,12 @@ export function summarizeSubscriptionTimeline(
   }
 
   if (entitlementEndsAt === null) {
-    return { active: false, endsAt: null, remainingDays: 0 };
+    return { active: false, startsAt: null, endsAt: null, remainingDays: 0 };
   }
 
   return {
     active: true,
+    startsAt: entitlementStartsAt,
     endsAt: entitlementEndsAt,
     remainingDays: Math.max(
       0,

@@ -1,69 +1,70 @@
-# OpenGym Mobile UI Redesign
+# OpenGym Mobil UI Yenileme Tasarımı
 
-## Summary
+## Özet
 
-OpenGym's mobile app keeps its existing near-black, monochrome identity while
-moving to a calmer, native-first product interface. The redesign removes
-placeholder fitness content and focuses the member experience on real product
-capabilities: occupancy, subscription status, turnstile scanning, profile
-management, language selection, and account controls.
+OpenGym mobil uygulaması mevcut siyaha yakın monokrom kimliğini korurken daha
+sakin ve native odaklı bir ürün arayüzüne taşınır. Yenileme, temsili fitness
+içeriklerini kaldırır ve üye deneyimini gerçek ürün yeteneklerine odaklar:
+doluluk, üyelik durumu, turnike taraması, profil yönetimi, dil seçimi ve hesap
+işlemleri.
 
-The authenticated app uses three working destinations: Home, Scan QR, and
-Profile. Authentication remains a small typed state machine and the signed-in
-shell uses the same approach; this redesign does not introduce a navigation
-framework or change server APIs.
+Oturum açılmış uygulama üç çalışan hedef kullanır: Ana Sayfa, QR Tara ve Profil.
+Kimlik doğrulama küçük ve tipli durum makinesi olarak kalır; oturumlu kabuk da
+aynı yaklaşımı kullanır. Bu yenileme bir navigasyon çatısı eklemez veya sunucu
+API'lerini değiştirmez.
 
-## Information Architecture
+## Bilgi Mimarisi
 
-- Authentication screens share a safe-area-aware, keyboard-safe `AuthShell`
-  with a restrained monochrome equipment image in the upper region.
-- Home shows the member greeting, live gym occupancy, subscription status, and
-  one clear route to QR scanning. Mock streak, body-weight, gym-hours, and class
-  reminder content is removed.
-- Scan QR owns camera permission, scanning, validation, success, and denial
-  states. Every failure includes a concrete recovery path.
-- Profile owns profile/photo data, language selection, sign-out, and account
-  deletion. Destructive actions are visually separated from routine settings.
-- A labelled three-item tab bar exposes only working destinations and preserves
-  each screen's state until sign-out or session loss.
+- Kimlik doğrulama ekranları safe area ve klavye davranışını yöneten ortak bir
+  `AuthShell` kullanır. Üst bölgede kontrollü, monokrom bir ekipman görseli yer
+  alır.
+- Ana Sayfa üye selamlamasını, canlı salon doluluğunu, üyelik durumunu ve QR
+  taramasına giden tek belirgin yolu gösterir. Temsili seri, vücut ağırlığı,
+  salon saati ve ders hatırlatması içerikleri kaldırılır.
+- QR Tara; kamera izni, tarama, doğrulama, başarı ve ret durumlarını yönetir.
+  Her hata somut bir kurtarma yolu sunar.
+- Profil; profil/fotoğraf verisini, dil seçimini, çıkışı ve hesap silmeyi yönetir.
+  Tehlikeli işlemler rutin ayarlardan görsel olarak ayrılır.
+- Etiketli üç öğeli alt menü yalnız çalışan hedefleri gösterir ve çıkış ya da
+  oturum kaybına kadar ekran durumunu korur.
 
-## Visual and Interaction System
+## Görsel ve Etkileşim Sistemi
 
-- Preserve the committed palette: `#060607` background, dark neutral surfaces,
-  off-white primary text, and semantic green/red status colors.
-- Use system fonts with fixed product roles: 28 pt screen title, 20–22 pt section
-  title, 16–17 pt body, 14–15 pt supporting copy, and 13 pt short labels.
-- Cards use 14–16 pt radii; inputs use 12–14 pt radii; pills are reserved for
-  badges. A surface never combines a wide decorative shadow with a border.
-- All controls provide pressed, focused, disabled, loading, and error states.
-  Android's 48 dp minimum touch target is the cross-platform floor.
-- Motion lasts 150–220 ms and communicates only press, tab, or result state.
-  Reduced-motion users receive a short crossfade or an immediate state change.
-- QR success/error may emit one best-effort haptic after the camera stops;
-  visual feedback remains authoritative.
+- Sabit palet korunur: `#060607` arka plan, koyu nötr yüzeyler, kırık beyaz ana
+  metin ve semantik yeşil/kırmızı durum renkleri.
+- Sistem yazı tipi sabit ürün rolleriyle kullanılır: 28 pt ekran başlığı, 20–22
+  pt bölüm başlığı, 16–17 pt gövde, 14–15 pt destek metni ve 13 pt kısa etiket.
+- Kartlar 14–16 pt, giriş alanları 12–14 pt yarıçap kullanır; tam yuvarlak biçim
+  yalnız rozetlere ayrılır. Bir yüzey geniş dekoratif gölge ile kenarlığı aynı
+  anda kullanmaz.
+- Tüm kontroller basılı, odaklı, devre dışı, yükleniyor ve hata durumları sunar.
+  Android'in 48 dp asgari dokunma hedefi iki platform için alt sınırdır.
+- Hareket 150–220 ms sürer ve yalnızca basış, sekme veya sonuç durumunu anlatır.
+  Hareketi azaltan kullanıcılar kısa crossfade ya da anlık durum değişimi görür.
+- QR başarı/hata sonucu kamera durduktan sonra bir kez en iyi çaba haptik
+  üretebilir; görsel geri bildirim her zaman belirleyicidir.
 
-## Data and Interfaces
+## Veri ve Arayüzler
 
-- Existing API routes and `@opengym/shared` types remain unchanged.
-- Home fetches subscription and occupancy data. Profile fetches profile and
-  deletion-request data and owns photo upload/removal mutations.
-- Local authenticated navigation uses `AppTab = "home" | "scan" | "profile"`.
-- Shared UI exposes semantic button variants and field helper/error states.
-- All new user-facing strings are added to Turkish and English resources.
+- Mevcut API rotaları ve `@opengym/shared` tipleri değişmez.
+- Ana Sayfa üyelik ve doluluk verisini getirir. Profil; profil ve silme talebi
+  verisini getirir, fotoğraf yükleme/kaldırma mutasyonlarını yönetir.
+- Yerel oturumlu navigasyon `AppTab = "home" | "scan" | "profile"` kullanır.
+- Ortak UI semantik düğme varyantları ile alan yardım/hata durumlarını sunar.
+- Yeni tüm kullanıcı metinleri Türkçe ve İngilizce kaynaklara eklenir.
 
-## Quality Bar
+## Kalite Eşiği
 
-- Authentication remains usable with the keyboard open on small phones.
-- Safe areas, bottom insets, landscape, large system text, screen-reader order,
-  and reduced motion are explicitly supported.
-- Loading retains spatial stability; refresh keeps prior data visible; network
-  failures provide retry actions.
-- Camera and location permission failures, compromised-device blocking, and all
-  gate denial codes remain recoverable and understandable.
-- Mobile lint, typecheck, tests, and an Android dev-client build must pass.
+- Kimlik doğrulama küçük telefonlarda klavye açıkken kullanılabilir kalır.
+- Safe area, alt boşluklar, yatay ekran, büyük sistem yazısı, ekran okuyucu
+  sırası ve azaltılmış hareket açıkça desteklenir.
+- Yükleme mekânsal kararlılığı korur; yenileme mevcut veriyi gösterir; ağ
+  hataları yeniden deneme eylemi sunar.
+- Kamera/konum izin hataları, riskli cihaz engeli ve tüm turnike ret kodları
+  anlaşılır ve kurtarılabilir kalır.
+- Mobil lint, typecheck, testler ve Android dev-client derlemesi geçmelidir.
 
-## Non-goals
+## Kapsam Dışı
 
-This work adds no payments, classes, training or diet features, body tracking,
-new backend endpoints, experimental obfuscation, light theme, or multi-branch
-behavior.
+Bu çalışma ödeme, ders, antrenman veya diyet özellikleri, vücut takibi, yeni
+backend endpoint'i, deneysel gizleme, açık tema ya da çok şube davranışı eklemez.

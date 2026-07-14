@@ -11,6 +11,7 @@ import type {
   Role,
 } from "@opengym/shared";
 import { auth } from "../auth.js";
+import { sendApiError } from "../apiError.js";
 import { db } from "../db.js";
 import { redis } from "../redis.js";
 import { logAudit } from "../audit.js";
@@ -89,9 +90,12 @@ adminRouter.post(
       typeof newPassword !== "string" ||
       newPassword.length < 8
     ) {
-      res
-        .status(400)
-        .json({ message: "Yeni şifre en az 8 karakter olmalıdır." });
+      sendApiError(
+        res,
+        400,
+        "PASSWORD_TOO_SHORT",
+        "Yeni şifre en az 8 karakter olmalıdır.",
+      );
       return;
     }
     try {
@@ -100,7 +104,12 @@ adminRouter.post(
         body: { currentPassword, newPassword, revokeOtherSessions: false },
       });
     } catch {
-      res.status(400).json({ message: "Mevcut şifre hatalı." });
+      sendApiError(
+        res,
+        400,
+        "CURRENT_PASSWORD_INVALID",
+        "Mevcut şifre hatalı.",
+      );
       return;
     }
     await db
@@ -118,7 +127,12 @@ adminRouter.post(
 adminRouter.get("/users", requireRole("admin", "staff"), async (req, res) => {
   const query = parseUserSearchQuery(req.query.q);
   if (!query) {
-    res.status(400).json({ message: "Arama için en az iki karakter girin." });
+    sendApiError(
+      res,
+      400,
+      "SEARCH_QUERY_TOO_SHORT",
+      "Arama için en az iki karakter girin.",
+    );
     return;
   }
   const phoneE164 = tryNormalizePhoneToE164(query);
@@ -144,11 +158,21 @@ adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
   const targetId = parseObjectId(idParam);
   const role = req.body?.role as Role | undefined;
   if (!targetId || !role || !["admin", "staff", "member"].includes(role)) {
-    res.status(400).json({ message: "Geçersiz kullanıcı veya rol." });
+    sendApiError(
+      res,
+      400,
+      "INVALID_USER_OR_ROLE",
+      "Geçersiz kullanıcı veya rol.",
+    );
     return;
   }
   if (idParam === req.user!.id) {
-    res.status(400).json({ message: "Kendi rolünüzü değiştiremezsiniz." });
+    sendApiError(
+      res,
+      400,
+      "SELF_ROLE_CHANGE",
+      "Kendi rolünüzü değiştiremezsiniz.",
+    );
     return;
   }
 
@@ -157,10 +181,12 @@ adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
   if (req.user!.twoFactorEnabled) {
     const parsedMfa = mfaSchema.safeParse(req.body);
     if (!parsedMfa.success) {
-      res.status(403).json({
-        code: "MFA_REQUIRED",
-        message: "Bu işlem için MFA doğrulaması gerekli.",
-      });
+      sendApiError(
+        res,
+        403,
+        "MFA_REQUIRED",
+        "Bu işlem için MFA doğrulaması gerekli.",
+      );
       return;
     }
     const { mfaCode, mfaMethod } = parsedMfa.data;
@@ -170,11 +196,12 @@ adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
     const mfaFailKey = `og:mfa-fail:${req.user!.id}`;
     const failCount = Number((await redis.get(mfaFailKey)) ?? 0);
     if (failCount >= 5) {
-      res.status(429).json({
-        code: "MFA_LOCKED",
-        message:
-          "Çok fazla hatalı kod denemesi. 15 dakika sonra tekrar deneyin.",
-      });
+      sendApiError(
+        res,
+        429,
+        "MFA_LOCKED",
+        "Çok fazla hatalı kod denemesi. 15 dakika sonra tekrar deneyin.",
+      );
       return;
     }
 
@@ -192,10 +219,12 @@ adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
       if (fails === 1) {
         await redis.expire(mfaFailKey, 900);
       }
-      res.status(403).json({
-        code: "MFA_INVALID",
-        message: "Doğrulama kodu geçersiz veya süresi dolmuş.",
-      });
+      sendApiError(
+        res,
+        403,
+        "MFA_INVALID",
+        "Doğrulama kodu geçersiz veya süresi dolmuş.",
+      );
       return;
     }
   }
@@ -204,7 +233,7 @@ adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
     .collection("user")
     .findOneAndUpdate({ _id: targetId }, { $set: { role } });
   if (!result) {
-    res.status(404).json({ message: "Kullanıcı bulunamadı." });
+    sendApiError(res, 404, "USER_NOT_FOUND", "Kullanıcı bulunamadı.");
     return;
   }
   await logAudit(req.user!, "role-assigned", idParam, {
@@ -231,14 +260,17 @@ adminRouter.post(
     const parsed = createSubscriptionSchema.safeParse(req.body ?? {});
     const targetId = parsed.success ? parseObjectId(parsed.data.userId) : null;
     if (!parsed.success || !targetId) {
-      res.status(400).json({
-        message: "Geçerli kullanıcı ve abonelik paketi girin.",
-      });
+      sendApiError(
+        res,
+        400,
+        "INVALID_SUBSCRIPTION",
+        "Geçerli kullanıcı ve abonelik paketi girin.",
+      );
       return;
     }
     const target = await db.collection("user").findOne({ _id: targetId });
     if (!target) {
-      res.status(404).json({ message: "Kullanıcı bulunamadı." });
+      sendApiError(res, 404, "USER_NOT_FOUND", "Kullanıcı bulunamadı.");
       return;
     }
     try {
@@ -262,10 +294,12 @@ adminRouter.post(
       });
     } catch (error) {
       if (error instanceof SubscriptionLockTimeoutError) {
-        res.status(503).json({
-          code: "SUBSCRIPTION_BUSY",
-          message: "Abonelik işlemi sürüyor. Lütfen tekrar deneyin.",
-        });
+        sendApiError(
+          res,
+          503,
+          "SUBSCRIPTION_BUSY",
+          "Abonelik işlemi sürüyor. Lütfen tekrar deneyin.",
+        );
         return;
       }
       throw error;
@@ -279,7 +313,7 @@ adminRouter.get(
   async (req, res) => {
     const targetId = parseObjectId(String(req.params.id ?? ""));
     if (!targetId) {
-      res.status(400).json({ message: "Geçersiz kullanıcı." });
+      sendApiError(res, 400, "INVALID_USER", "Geçersiz kullanıcı.");
       return;
     }
     const docs = await listUserSubscriptions(targetId);
@@ -321,7 +355,7 @@ const sharingSchema = z.object({
 adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
   const { gymName, location, capacity, autoExitHours } = req.body ?? {};
   if (typeof gymName !== "string" || !gymName.trim()) {
-    res.status(400).json({ message: "Salon adı zorunludur." });
+    sendApiError(res, 400, "GYM_NAME_REQUIRED", "Salon adı zorunludur.");
     return;
   }
   let loc: GymSettings["location"] = null;
@@ -335,19 +369,24 @@ adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
       Number.isNaN(radiusM) ||
       radiusM <= 0
     ) {
-      res.status(400).json({ message: "Geçersiz konum bilgisi." });
+      sendApiError(res, 400, "INVALID_LOCATION", "Geçersiz konum bilgisi.");
       return;
     }
     loc = { lat, lng, radiusM };
   }
   const cap = capacity == null ? null : Number(capacity);
   if (cap !== null && (Number.isNaN(cap) || cap <= 0)) {
-    res.status(400).json({ message: "Geçersiz kapasite." });
+    sendApiError(res, 400, "INVALID_CAPACITY", "Geçersiz kapasite.");
     return;
   }
   const autoExit = autoExitHours == null ? 4 : Number(autoExitHours);
   if (!Number.isInteger(autoExit) || autoExit < 1 || autoExit > 48) {
-    res.status(400).json({ message: "Geçersiz otomatik çıkış süresi." });
+    sendApiError(
+      res,
+      400,
+      "INVALID_AUTO_EXIT",
+      "Geçersiz otomatik çıkış süresi.",
+    );
     return;
   }
 
@@ -362,7 +401,12 @@ adminRouter.put("/settings", requireRole("admin"), async (req, res) => {
   if (req.body?.sharing !== undefined) {
     const parsedSharing = sharingSchema.safeParse(req.body.sharing);
     if (!parsedSharing.success) {
-      res.status(400).json({ message: "Geçersiz paylaşım tespiti ayarları." });
+      sendApiError(
+        res,
+        400,
+        "INVALID_SHARING_SETTINGS",
+        "Geçersiz paylaşım tespiti ayarları.",
+      );
       return;
     }
     setDoc.sharing = parsedSharing.data;
@@ -476,18 +520,33 @@ adminRouter.post(
   async (req, res) => {
     const requestId = parseObjectId(String(req.params.id ?? ""));
     if (!requestId) {
-      res.status(404).json({ message: "Silme talebi bulunamadı." });
+      sendApiError(
+        res,
+        404,
+        "DELETION_REQUEST_NOT_FOUND",
+        "Silme talebi bulunamadı.",
+      );
       return;
     }
     const request = await db
       .collection("deletion_requests")
       .findOne({ _id: requestId });
     if (!request) {
-      res.status(404).json({ message: "Silme talebi bulunamadı." });
+      sendApiError(
+        res,
+        404,
+        "DELETION_REQUEST_NOT_FOUND",
+        "Silme talebi bulunamadı.",
+      );
       return;
     }
     if (request.status !== "pending") {
-      res.status(409).json({ message: "Silme talebi zaten sonuçlandırılmış." });
+      sendApiError(
+        res,
+        409,
+        "DELETION_REQUEST_RESOLVED",
+        "Silme talebi zaten sonuçlandırılmış.",
+      );
       return;
     }
 
@@ -502,10 +561,12 @@ adminRouter.post(
       await deleteUserProfilePhotoForAccountDeletion(targetIdStr);
     } catch (error) {
       console.error("KVKK profil fotoğrafı silinemedi", error);
-      res.status(503).json({
-        message:
-          "Profil fotoğrafı depolama alanından silinemedi. Lütfen tekrar deneyin.",
-      });
+      sendApiError(
+        res,
+        503,
+        "DELETION_CLEANUP_FAILED",
+        "Profil fotoğrafı depolama alanından silinemedi. Lütfen tekrar deneyin.",
+      );
       return;
     }
 
@@ -559,18 +620,33 @@ adminRouter.post(
   async (req, res) => {
     const requestId = parseObjectId(String(req.params.id ?? ""));
     if (!requestId) {
-      res.status(404).json({ message: "Silme talebi bulunamadı." });
+      sendApiError(
+        res,
+        404,
+        "DELETION_REQUEST_NOT_FOUND",
+        "Silme talebi bulunamadı.",
+      );
       return;
     }
     const request = await db
       .collection("deletion_requests")
       .findOne({ _id: requestId });
     if (!request) {
-      res.status(404).json({ message: "Silme talebi bulunamadı." });
+      sendApiError(
+        res,
+        404,
+        "DELETION_REQUEST_NOT_FOUND",
+        "Silme talebi bulunamadı.",
+      );
       return;
     }
     if (request.status !== "pending") {
-      res.status(409).json({ message: "Silme talebi zaten sonuçlandırılmış." });
+      sendApiError(
+        res,
+        409,
+        "DELETION_REQUEST_RESOLVED",
+        "Silme talebi zaten sonuçlandırılmış.",
+      );
       return;
     }
     await db.collection("deletion_requests").updateOne(

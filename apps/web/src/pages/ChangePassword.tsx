@@ -1,8 +1,11 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import { AuthLayout } from "../components/AuthLayout";
+import { errorMessage } from "../i18n/errors";
 
 export function ChangePassword({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -12,11 +15,11 @@ export function ChangePassword({ onDone }: { onDone: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (next !== confirm) {
-      setError("Yeni şifreler eşleşmiyor.");
+      setError(t("Yeni şifreler eşleşmiyor."));
       return;
     }
     if (next.length < 8) {
-      setError("Yeni şifre en az 8 karakter olmalı.");
+      setError(t("Yeni şifre en az 8 karakter olmalı."));
       return;
     }
     setBusy(true);
@@ -28,7 +31,7 @@ export function ChangePassword({ onDone }: { onDone: () => void }) {
       });
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "İşlem başarısız.");
+      setError(errorMessage(err, t, "İşlem başarısız."));
     } finally {
       setBusy(false);
     }
@@ -37,14 +40,15 @@ export function ChangePassword({ onDone }: { onDone: () => void }) {
   return (
     <AuthLayout>
       <form onSubmit={submit}>
-        <h1>Şifre değiştir</h1>
+        <h1>{t("Şifre değiştir")}</h1>
         <p className="sub">
-          Güvenlik gereği devam etmeden önce varsayılan şifrenizi
-          değiştirmelisiniz.
+          {t(
+            "Güvenlik gereği devam etmeden önce varsayılan şifrenizi değiştirmelisiniz.",
+          )}
         </p>
         {error && <div className="msg error">{error}</div>}
         <div className="field">
-          <label htmlFor="current">Mevcut şifre</label>
+          <label htmlFor="current">{t("Mevcut şifre")}</label>
           <input
             id="current"
             type="password"
@@ -55,7 +59,7 @@ export function ChangePassword({ onDone }: { onDone: () => void }) {
           />
         </div>
         <div className="field">
-          <label htmlFor="next">Yeni şifre</label>
+          <label htmlFor="next">{t("Yeni şifre")}</label>
           <input
             id="next"
             type="password"
@@ -66,7 +70,7 @@ export function ChangePassword({ onDone }: { onDone: () => void }) {
           />
         </div>
         <div className="field">
-          <label htmlFor="confirm">Yeni şifre (tekrar)</label>
+          <label htmlFor="confirm">{t("Yeni şifre (tekrar)")}</label>
           <input
             id="confirm"
             type="password"
@@ -77,7 +81,7 @@ export function ChangePassword({ onDone }: { onDone: () => void }) {
           />
         </div>
         <button type="submit" disabled={busy} style={{ width: "100%" }}>
-          {busy ? "Kaydediliyor…" : "Şifreyi değiştir"}
+          {busy ? t("Kaydediliyor…") : t("Şifreyi değiştir")}
         </button>
       </form>
     </AuthLayout>

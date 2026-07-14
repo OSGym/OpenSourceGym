@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   CreateSubscriptionRequest,
   MfaMethod,
@@ -8,9 +9,17 @@ import type {
 } from "@opengym/shared";
 import { ApiError, api, authApi } from "../lib/api";
 import { useProfile } from "../lib/profile";
+import { dateLocale } from "../i18n/format";
+import { errorMessage } from "../i18n/errors";
+import type { WebTranslationKey } from "../i18n/resources";
 
-const fmt = (iso: string) => new Date(iso).toLocaleDateString("tr-TR");
 const subscriptionMonthOptions: readonly SubscriptionMonths[] = [1, 3, 6, 12];
+
+function roleKey(role: PublicUser["role"]): "Yönetici" | "Personel" | "Üye" {
+  if (role === "admin") return "Yönetici";
+  if (role === "staff") return "Personel";
+  return "Üye";
+}
 
 function MemberAvatar({
   member,
@@ -19,17 +28,20 @@ function MemberAvatar({
   member: PublicUser;
   large?: boolean;
 }) {
+  const { t, i18n } = useTranslation();
   const [failed, setFailed] = useState(false);
   const initials =
     `${member.firstName[0] ?? ""}${member.lastName[0] ?? ""}`.toLocaleUpperCase(
-      "tr-TR",
+      dateLocale(i18n.resolvedLanguage),
     ) || "Ü";
   return (
     <span className={`member-avatar${large ? " member-avatar-large" : ""}`}>
       {member.profilePhotoUrl && !failed ? (
         <img
           src={member.profilePhotoUrl}
-          alt={`${member.firstName} ${member.lastName} profil fotoğrafı`}
+          alt={t("{{name}} profil fotoğrafı", {
+            name: `${member.firstName} ${member.lastName}`,
+          })}
           onError={() => setFailed(true)}
         />
       ) : (
@@ -40,7 +52,7 @@ function MemberAvatar({
 }
 
 function subscriptionStatus(subscription: Subscription): {
-  label: string;
+  label: WebTranslationKey;
   className: string;
 } {
   const now = Date.now();
@@ -54,6 +66,7 @@ function subscriptionStatus(subscription: Subscription): {
 }
 
 function SubscriptionPanel({ member }: { member: PublicUser }) {
+  const { t, i18n } = useTranslation();
   const [subs, setSubs] = useState<Subscription[] | null>(null);
   const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
   const [months, setMonths] = useState<SubscriptionMonths>(1);
@@ -74,18 +87,18 @@ function SubscriptionPanel({ member }: { member: PublicUser }) {
       const request: CreateSubscriptionRequest = {
         userId: member.id,
         months,
-        note: `${months} aylık paket`,
+        note: t("{{months}} aylık paket", { months }),
       };
       await api("/api/admin/subscriptions", {
         method: "POST",
         body: request,
       });
-      setMsg({ kind: "success", text: "Abonelik tanımlandı." });
+      setMsg({ kind: "success", text: t("Abonelik tanımlandı.") });
       await load();
     } catch (err) {
       setMsg({
         kind: "error",
-        text: err instanceof Error ? err.message : "İşlem başarısız.",
+        text: errorMessage(err, t, "Abonelik tanımlanamadı."),
       });
     }
   }
@@ -95,13 +108,15 @@ function SubscriptionPanel({ member }: { member: PublicUser }) {
       <div className="member-detail-heading">
         <MemberAvatar member={member} large />
         <h2>
-          Abonelik — {member.firstName} {member.lastName}
+          {t("Abonelik — {{name}}", {
+            name: `${member.firstName} ${member.lastName}`,
+          })}
         </h2>
       </div>
       {msg && <div className={`msg ${msg.kind}`}>{msg.text}</div>}
       <div className="row" style={{ marginBottom: 18 }}>
         <div className="field">
-          <label htmlFor="months">Paket</label>
+          <label htmlFor="months">{t("Paket")}</label>
           <select
             id="months"
             value={months}
@@ -111,20 +126,20 @@ function SubscriptionPanel({ member }: { member: PublicUser }) {
           >
             {subscriptionMonthOptions.map((option) => (
               <option key={option} value={option}>
-                {option} ay
+                {t(`${option} ay` as "1 ay" | "3 ay" | "6 ay" | "12 ay")}
               </option>
             ))}
           </select>
         </div>
-        <button onClick={grant}>Abonelik tanımla</button>
+        <button onClick={grant}>{t("Abonelik tanımla")}</button>
       </div>
       <table>
         <thead>
           <tr>
-            <th>Başlangıç</th>
-            <th>Bitiş</th>
-            <th>Not</th>
-            <th>Durum</th>
+            <th>{t("Başlangıç")}</th>
+            <th>{t("Bitiş")}</th>
+            <th>{t("Not")}</th>
+            <th>{t("Durum")}</th>
           </tr>
         </thead>
         <tbody>
@@ -132,12 +147,20 @@ function SubscriptionPanel({ member }: { member: PublicUser }) {
             const status = subscriptionStatus(subscription);
             return (
               <tr key={subscription.id}>
-                <td>{fmt(subscription.startsAt)}</td>
-                <td>{fmt(subscription.endsAt)}</td>
+                <td>
+                  {new Date(subscription.startsAt).toLocaleDateString(
+                    dateLocale(i18n.resolvedLanguage),
+                  )}
+                </td>
+                <td>
+                  {new Date(subscription.endsAt).toLocaleDateString(
+                    dateLocale(i18n.resolvedLanguage),
+                  )}
+                </td>
                 <td>{subscription.note ?? "—"}</td>
                 <td>
                   <span className={`badge ${status.className}`}>
-                    {status.label}
+                    {t(status.label)}
                   </span>
                 </td>
               </tr>
@@ -145,7 +168,7 @@ function SubscriptionPanel({ member }: { member: PublicUser }) {
           })}
           {subs?.length === 0 && (
             <tr>
-              <td colSpan={4}>Abonelik kaydı yok.</td>
+              <td colSpan={4}>{t("Abonelik kaydı yok.")}</td>
             </tr>
           )}
         </tbody>
@@ -160,6 +183,7 @@ interface MfaPrompt {
 }
 
 export function Members() {
+  const { t } = useTranslation();
   const { profile: user } = useProfile();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PublicUser[] | null>(null);
@@ -180,7 +204,10 @@ export function Members() {
     const q = query.trim();
     if (q.length < 2) {
       setResults(null);
-      setMsg({ kind: "error", text: "Arama için en az iki karakter girin." });
+      setMsg({
+        kind: "error",
+        text: t("Aramak için en az iki karakter girin."),
+      });
       return;
     }
     try {
@@ -191,7 +218,7 @@ export function Members() {
       setResults(null);
       setMsg({
         kind: "error",
-        text: err instanceof Error ? err.message : "Arama başarısız.",
+        text: errorMessage(err, t, "Arama başarısız."),
       });
     }
   }
@@ -207,7 +234,10 @@ export function Members() {
     });
     setMsg({
       kind: "success",
-      text: `${target.email} → ${role} olarak güncellendi.`,
+      text: t("{{email}} → {{role}} olarak güncellendi.", {
+        email: target.email,
+        role: t(roleKey(role as PublicUser["role"])),
+      }),
     });
     setResults(
       (prev) =>
@@ -232,7 +262,7 @@ export function Members() {
       }
       setMsg({
         kind: "error",
-        text: err instanceof Error ? err.message : "Rol atanamadı.",
+        text: errorMessage(err, t, "Rol atanamadı."),
       });
     }
   }
@@ -245,9 +275,9 @@ export function Members() {
     if (method === "otp") {
       try {
         await authApi("/two-factor/send-otp", {});
-        setMfaInfo("Kod e-postanıza gönderildi.");
+        setMfaInfo(t("Kod e-postanıza gönderildi."));
       } catch (err) {
-        setMfaError(err instanceof Error ? err.message : "Kod gönderilemedi.");
+        setMfaError(errorMessage(err, t, "Kod gönderilemedi."));
       }
     }
   }
@@ -264,11 +294,9 @@ export function Members() {
       setMfaPrompt(null);
     } catch (err) {
       if (err instanceof ApiError && err.code === "MFA_INVALID") {
-        setMfaError("Kod geçersiz.");
+        setMfaError(t("Kod geçersiz."));
       } else {
-        setMfaError(
-          err instanceof Error ? err.message : "Doğrulama başarısız.",
-        );
+        setMfaError(errorMessage(err, t, "Doğrulama başarısız."));
       }
     } finally {
       setMfaBusy(false);
@@ -277,37 +305,37 @@ export function Members() {
 
   return (
     <div className="stagger">
-      <h1>Üyeler</h1>
+      <h1>{t("Üyeler")}</h1>
       <div className="panel">
         <form className="row" onSubmit={search}>
           <div className="field">
             <label htmlFor="member-query">
-              Telefon, e-posta, ad veya soyad
+              {t("Telefon, e-posta, ad veya soyad")}
             </label>
             <input
               id="member-query"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Ayşe Yılmaz, ayse@… veya +90530…"
+              placeholder={t("Ayşe Yılmaz, ayse@… veya +90530…")}
               minLength={2}
               required
             />
           </div>
-          <button type="submit">Ara</button>
+          <button type="submit">{t("Ara")}</button>
         </form>
       </div>
       {msg && <div className={`msg ${msg.kind}`}>{msg.text}</div>}
       {results && (
         <div className="panel">
-          <h2>Sonuçlar</h2>
+          <h2>{t("Sonuçlar")}</h2>
           <table>
             <thead>
               <tr>
-                <th>Ad Soyad</th>
-                <th>Telefon</th>
-                <th>E-posta</th>
-                <th>Rol</th>
-                <th>İşlem</th>
+                <th>{t("Ad Soyad")}</th>
+                <th>{t("Telefon")}</th>
+                <th>{t("E-posta")}</th>
+                <th>{t("Rol")}</th>
+                <th>{t("İşlem")}</th>
               </tr>
             </thead>
             <tbody>
@@ -324,7 +352,9 @@ export function Members() {
                   <td>{u.phone}</td>
                   <td>{u.email}</td>
                   <td>
-                    <span className={`badge ${u.role}`}>{u.role}</span>
+                    <span className={`badge ${u.role}`}>
+                      {t(roleKey(u.role))}
+                    </span>
                   </td>
                   <td>
                     <div className="row">
@@ -333,9 +363,9 @@ export function Members() {
                           value={u.role}
                           onChange={(e) => setRole(u, e.target.value)}
                         >
-                          <option value="member">member</option>
-                          <option value="staff">staff</option>
-                          <option value="admin">admin</option>
+                          <option value="member">{t("Üye")}</option>
+                          <option value="staff">{t("Personel")}</option>
+                          <option value="admin">{t("Yönetici")}</option>
                         </select>
                       )}
                       <button
@@ -343,7 +373,7 @@ export function Members() {
                         className="ghost"
                         onClick={() => setSelected(u)}
                       >
-                        Abonelik
+                        {t("Abonelik")}
                       </button>
                     </div>
                   </td>
@@ -351,7 +381,7 @@ export function Members() {
               ))}
               {results.length === 0 && (
                 <tr>
-                  <td colSpan={5}>Eşleşen üye bulunamadı.</td>
+                  <td colSpan={5}>{t("Eşleşen üye bulunamadı.")}</td>
                 </tr>
               )}
             </tbody>
@@ -362,10 +392,15 @@ export function Members() {
       {mfaPrompt && (
         <div className="modal-overlay">
           <div className="panel">
-            <h2>MFA doğrulama gerekli</h2>
+            <h2>{t("MFA doğrulama gerekli")}</h2>
             <p className="hint" style={{ marginBottom: 16 }}>
-              {mfaPrompt.target.email} kullanıcısının rolünü {mfaPrompt.role}{" "}
-              olarak değiştirmek için doğrulama kodu girin.
+              {t(
+                "{{email}} kullanıcısının rolünü {{role}} olarak değiştirmek için doğrulama kodu girin.",
+                {
+                  email: mfaPrompt.target.email,
+                  role: t(roleKey(mfaPrompt.role as PublicUser["role"])),
+                },
+              )}
             </p>
             {mfaError && <div className="msg error">{mfaError}</div>}
             {mfaInfo && <div className="msg success">{mfaInfo}</div>}
@@ -375,18 +410,18 @@ export function Members() {
                 className={mfaMethod === "totp" ? "" : "ghost"}
                 onClick={() => void chooseMfaMethod("totp")}
               >
-                Authenticator
+                {t("Authenticator")}
               </button>
               <button
                 type="button"
                 className={mfaMethod === "otp" ? "" : "ghost"}
                 onClick={() => void chooseMfaMethod("otp")}
               >
-                E-posta kodu
+                {t("E-posta kodu")}
               </button>
             </div>
             <div className="field">
-              <label htmlFor="mfaCode">Doğrulama kodu</label>
+              <label htmlFor="mfaCode">{t("Doğrulama kodu")}</label>
               <input
                 id="mfaCode"
                 value={mfaCode}
@@ -402,7 +437,7 @@ export function Members() {
                 onClick={() => void confirmMfa()}
                 disabled={mfaBusy || !mfaCode}
               >
-                {mfaBusy ? "Doğrulanıyor…" : "Onayla"}
+                {mfaBusy ? t("Doğrulanıyor…") : t("Onayla")}
               </button>
               <button
                 type="button"
@@ -410,7 +445,7 @@ export function Members() {
                 onClick={() => setMfaPrompt(null)}
                 disabled={mfaBusy}
               >
-                Vazgeç
+                {t("Vazgeç")}
               </button>
             </div>
           </div>

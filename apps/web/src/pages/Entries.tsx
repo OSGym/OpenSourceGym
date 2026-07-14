@@ -1,22 +1,37 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type {
-  EntryDenyReason,
   EntryEvent,
+  GateRejectCode,
   OccupancyResponse,
 } from "@opengym/shared";
 import { api } from "../lib/api";
+import { errorMessage } from "../i18n/errors";
+import { dateLocale } from "../i18n/format";
+import type { WebTranslationKey } from "../i18n/resources";
 
-const reasonLabels: Record<EntryDenyReason, string> = {
-  INVALID_TOKEN: "Geçersiz kod",
-  EXPIRED: "Süresi dolmuş kod",
-  REPLAY: "Tekrar kullanılmış kod",
+const reasonLabels: Record<GateRejectCode, WebTranslationKey> = {
+  INVALID_QR: "Geçersiz kod",
+  UNKNOWN_DEVICE: "Bilinmeyen cihaz",
+  DEVICE_OFFLINE: "Turnike çevrimdışı",
   NO_ACTIVE_SUBSCRIPTION: "Aktif abonelik yok",
+  LOCATION_REQUIRED: "Konum alınamadı",
+  OUT_OF_RANGE: "Salon dışı konum",
+  MOCK_LOCATION: "Sahte konum",
+  SHARING_BLOCKED: "Paylaşım engeli",
 };
 
-const reasonLabel = (reason: EntryDenyReason | null) =>
-  reason ? reasonLabels[reason] : "—";
-
+// Eski akıştan (INVALID_TOKEN/EXPIRED/REPLAY) kalan kayıtlar için ham metne düşer
 export function Entries() {
+  const { t, i18n } = useTranslation();
+  const locale = dateLocale(i18n.resolvedLanguage);
+  const reasonLabel = (reason: string | null) => {
+    if (!reason) return "—";
+    const key = (reasonLabels as Partial<Record<string, WebTranslationKey>>)[
+      reason
+    ];
+    return key ? t(key) : reason;
+  };
   const [entries, setEntries] = useState<EntryEvent[]>([]);
   const [occupancy, setOccupancy] = useState<OccupancyResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +46,7 @@ export function Entries() {
       setOccupancy(occ);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Yüklenemedi.");
+      setError(errorMessage(err, t, "Yüklenemedi."));
     }
   }
 
@@ -43,12 +58,14 @@ export function Entries() {
 
   return (
     <div className="stagger">
-      <h1>Geçişler</h1>
+      <h1>{t("Geçişler")}</h1>
       {occupancy && (
         <p className="hint" style={{ marginBottom: 16 }}>
-          İçeride: {occupancy.inside}
+          {t("İçeride: {{count}}", { count: occupancy.inside })}
           {occupancy.ratio != null &&
-            ` · %${Math.round(occupancy.ratio * 100)} doluluk`}
+            ` · ${t("Doluluk: %{{percent}}", {
+              percent: Math.round(occupancy.ratio * 100),
+            })}`}
         </p>
       )}
       {error && <div className="msg error">{error}</div>}
@@ -56,24 +73,24 @@ export function Entries() {
         <table>
           <thead>
             <tr>
-              <th>Zaman</th>
-              <th>Cihaz</th>
-              <th>Üye</th>
-              <th>Sonuç</th>
-              <th>Neden</th>
+              <th>{t("Zaman")}</th>
+              <th>{t("Cihaz")}</th>
+              <th>{t("Üye")}</th>
+              <th>{t("Sonuç")}</th>
+              <th>{t("Neden")}</th>
             </tr>
           </thead>
           <tbody>
             {entries.map((e) => (
               <tr key={e.id}>
-                <td>{new Date(e.at).toLocaleString("tr-TR")}</td>
+                <td>{new Date(e.at).toLocaleString(locale)}</td>
                 <td>{e.deviceName}</td>
                 <td>{e.memberName ?? "—"}</td>
                 <td>
                   {e.allowed ? (
-                    <span className="badge ok">İzin verildi</span>
+                    <span className="badge ok">{t("İzin verildi")}</span>
                   ) : (
-                    <span className="badge danger">Reddedildi</span>
+                    <span className="badge danger">{t("Reddedildi")}</span>
                   )}
                 </td>
                 <td>{reasonLabel(e.reason)}</td>
@@ -81,7 +98,7 @@ export function Entries() {
             ))}
             {entries.length === 0 && !error && (
               <tr>
-                <td colSpan={5}>Kayıt yok.</td>
+                <td colSpan={5}>{t("Kayıt yok.")}</td>
               </tr>
             )}
           </tbody>

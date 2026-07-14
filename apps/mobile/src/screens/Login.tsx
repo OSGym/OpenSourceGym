@@ -1,8 +1,18 @@
-import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { authClient } from "../lib/auth";
 import { getDeviceFingerprint } from "../lib/fingerprint";
-import { Button, ErrorMsg, Field, styles } from "../ui";
+import { colors } from "../theme";
+import {
+  Button,
+  AuthShell,
+  ErrorMsg,
+  Field,
+  LogoMark,
+  PasswordField,
+  styles,
+} from "../ui";
 
 export function Login({
   onRegister,
@@ -13,19 +23,35 @@ export function Login({
   onNeedsVerification: (email: string, password: string) => void;
   onForgot: () => void;
 }) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
 
   async function submit() {
-    setBusy(true);
     setError(null);
+    const nextEmailError = email.trim() ? null : t("E-posta adresinizi girin.");
+    const nextPasswordError = password ? null : t("Şifrenizi girin.");
+    setEmailError(nextEmailError);
+    setPasswordError(nextPasswordError);
+    if (nextEmailError || nextPasswordError) {
+      (nextEmailError ? emailRef : passwordRef).current?.focus();
+      return;
+    }
+
+    setBusy(true);
     const fp = await getDeviceFingerprint();
     const { error } = await authClient.signIn.email({
       email,
       password,
-      fetchOptions: fp ? { headers: { "X-Device-Fingerprint": fp } } : undefined,
+      fetchOptions: fp
+        ? { headers: { "X-Device-Fingerprint": fp } }
+        : undefined,
     });
     setBusy(false);
     if (error) {
@@ -39,41 +65,87 @@ export function Login({
       }
       setError(
         error.status === 429
-          ? "Çok fazla deneme. Lütfen bir dakika bekleyin."
-          : "E-posta veya şifre hatalı.",
+          ? t("Çok fazla deneme. Lütfen bir dakika bekleyin.")
+          : t("E-posta veya şifre hatalı."),
       );
     }
   }
 
   return (
-    <View style={styles.screen}>
-      <Text style={styles.brand}>
-        Open<Text style={styles.brandAccent}>Gym</Text>
+    <AuthShell
+      footer={
+        <View
+          style={{ flexDirection: "row", justifyContent: "center", gap: 4 }}
+        >
+          <Text style={styles.footer}>{t("Hesabın yok mu?")}</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onRegister}
+            hitSlop={8}
+          >
+            <Text style={[styles.footer, styles.footerStrong]}>
+              {t("Kayıt Ol")}
+            </Text>
+          </Pressable>
+        </View>
+      }
+    >
+      <LogoMark />
+      <Text style={styles.heading}>{t("Tekrar hoş geldin")}</Text>
+      <Text style={styles.sub}>
+        {t("Üyeliğini kontrol et ve salona giriş yap")}
       </Text>
-      <Text style={styles.sub}>Üye girişi</Text>
-      <ErrorMsg text={error} />
-      <Field
-        label="E-posta"
-        value={email}
-        onChangeText={setEmail}
-        keyboardType="email-address"
-        autoCapitalize="none"
-        autoComplete="email"
-      />
-      <Field
-        label="Şifre"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        autoComplete="current-password"
-      />
-      <Button title="Giriş yap" onPress={submit} busy={busy} />
-      <Pressable onPress={onForgot}>
-        <Text style={styles.link}>Şifremi unuttum</Text>
+
+      <View style={{ marginTop: 28 }}>
+        <ErrorMsg text={error} />
+      </View>
+
+      <View style={{ marginTop: error ? 4 : 20, gap: 16 }}>
+        <Field
+          inputRef={emailRef}
+          label={t("E-posta")}
+          value={email}
+          error={emailError}
+          onChangeText={(value) => {
+            setEmail(value);
+            if (emailError) setEmailError(null);
+          }}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoComplete="email"
+          returnKeyType="next"
+          onSubmitEditing={() => passwordRef.current?.focus()}
+        />
+        <PasswordField
+          inputRef={passwordRef}
+          label={t("Şifre")}
+          value={password}
+          error={passwordError}
+          onChangeText={(value) => {
+            setPassword(value);
+            if (passwordError) setPasswordError(null);
+          }}
+          autoComplete="current-password"
+          returnKeyType="done"
+          onSubmitEditing={() => void submit()}
+        />
+      </View>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={onForgot}
+        style={{
+          alignSelf: "flex-end",
+          minHeight: 48,
+          justifyContent: "center",
+        }}
+      >
+        <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
+          {t("Şifremi unuttum")}
+        </Text>
       </Pressable>
-      <Pressable onPress={onRegister}>
-        <Text style={styles.link}>Hesabın yok mu? Kayıt ol</Text>
-      </Pressable>
-    </View>
+
+      <Button title={t("Giriş Yap")} onPress={submit} busy={busy} />
+    </AuthShell>
   );
 }

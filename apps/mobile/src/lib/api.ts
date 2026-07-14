@@ -5,10 +5,10 @@ import { getDeviceFingerprint } from "./fingerprint";
 export class ApiError extends Error {
   constructor(
     public status: number,
-    message: string,
+    public serverMessage: string,
     public code?: string,
   ) {
-    super(message);
+    super(serverMessage);
   }
 }
 
@@ -33,7 +33,7 @@ export async function api<T>(
     throw new ApiError(
       res.status,
       (data as { message?: string }).message ??
-        `İstek başarısız (${res.status})`,
+        `Request failed (${res.status})`,
       (data as { code?: string }).code,
     );
   }
@@ -50,7 +50,11 @@ export async function uploadBinary<T>(
     fetch(uri),
   ]);
   if (!localResponse.ok) {
-    throw new Error("Seçilen fotoğraf okunamadı.");
+    throw new ApiError(
+      0,
+      "The selected photo could not be read.",
+      "LOCAL_FILE_READ_FAILED",
+    );
   }
   const body = await localResponse.blob();
   const res = await fetch(`${API_URL}${path}`, {
@@ -67,7 +71,7 @@ export async function uploadBinary<T>(
     throw new ApiError(
       res.status,
       (data as { message?: string }).message ??
-        `İstek başarısız (${res.status})`,
+        `Request failed (${res.status})`,
       (data as { code?: string }).code,
     );
   }

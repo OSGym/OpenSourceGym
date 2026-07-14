@@ -237,7 +237,7 @@ export async function getSubscriptionSummary(
   now = new Date(),
 ): Promise<MySubscription> {
   if (!ObjectId.isValid(userId)) {
-    return { active: false, endsAt: null, remainingDays: 0 };
+    return { active: false, startsAt: null, endsAt: null, remainingDays: 0 };
   }
   const docs = await subscriptionCollection()
     .find({ userId: new ObjectId(userId), endsAt: { $gte: now } })
@@ -246,6 +246,7 @@ export async function getSubscriptionSummary(
   const summary = summarizeSubscriptionTimeline(docs, now);
   return {
     active: summary.active,
+    startsAt: summary.startsAt?.toISOString() ?? null,
     endsAt: summary.endsAt?.toISOString() ?? null,
     remainingDays: summary.remainingDays,
   };

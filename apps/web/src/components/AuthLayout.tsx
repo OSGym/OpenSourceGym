@@ -1,15 +1,19 @@
 import type { ReactNode } from "react";
-
-const todayLabel = new Date()
-  .toLocaleDateString("tr-TR", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })
-  .toUpperCase();
+import { useTranslation } from "react-i18next";
+import { LanguageSwitcher } from "../i18n/LanguageSwitcher";
+import { dateLocale } from "../i18n/format";
 
 export function AuthLayout({ children }: { children: ReactNode }) {
+  const { t, i18n } = useTranslation();
+  const todayLabel = new Date()
+    .toLocaleDateString(dateLocale(i18n.resolvedLanguage), {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })
+    .toLocaleUpperCase(dateLocale(i18n.resolvedLanguage));
+
   return (
     <div className="auth-wrap">
       <div className="auth-frame">
@@ -22,14 +26,14 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           </div>
           <div>
             <div className="auth-masthead-eyebrow">
-              FACILITY MANAGEMENT SYSTEM
+              {t("TESİS YÖNETİM SİSTEMİ")}
             </div>
             <div className="auth-masthead-title">
-              SET.
+              {t("AYARLA.")}
               <br />
-              REP.
+              {t("TEKRARLA.")}
               <br />
-              RUN.
+              {t("ÇALIŞ.")}
             </div>
           </div>
           <div />
@@ -37,6 +41,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 
         <div className="auth-card-wrap">
           <div className="auth-card">
+            <LanguageSwitcher />
             <span className="corner-mark corner-mark--tl" aria-hidden="true">
               +
             </span>
@@ -49,7 +54,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             <span className="corner-mark corner-mark--br" aria-hidden="true">
               +
             </span>
-            <div className="auth-eyebrow">TERMINAL ACCESS</div>
+            <div className="auth-eyebrow">{t("TERMİNAL ERİŞİMİ")}</div>
             {children}
           </div>
         </div>

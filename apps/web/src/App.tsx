@@ -1,4 +1,11 @@
-import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
+import {
+  BrowserRouter,
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+} from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { authClient, useSessionUser } from "./lib/auth";
 import { ProfileProvider, useProfile } from "./lib/profile";
 import { Login } from "./pages/Login";
@@ -11,19 +18,31 @@ import { Devices } from "./pages/Devices";
 import { Entries } from "./pages/Entries";
 import { Security } from "./pages/Security";
 import { Kvkk } from "./pages/Kvkk";
+import { LanguageSwitcher } from "./i18n/LanguageSwitcher";
+import { dateLocale } from "./i18n/format";
 
-const todayLabel = new Date()
-  .toLocaleDateString("tr-TR", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })
-  .toUpperCase();
+function roleLabel(
+  role: string | undefined,
+  t: (key: "Yönetici" | "Personel" | "Üye") => string,
+) {
+  if (role === "admin") return t("Yönetici");
+  if (role === "staff") return t("Personel");
+  return t("Üye");
+}
 
 function Shell({ children }: { children: React.ReactNode }) {
+  const { t, i18n } = useTranslation();
   const { refetch } = useSessionUser();
   const { profile } = useProfile();
+  const locale = dateLocale(i18n.resolvedLanguage);
+  const todayLabel = new Date()
+    .toLocaleDateString(locale, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })
+    .toLocaleUpperCase(locale);
   return (
     <div className="shell">
       <header className="topbar">
@@ -32,32 +51,35 @@ function Shell({ children }: { children: React.ReactNode }) {
             Open<em>Gym</em>
           </div>
           <nav className="nav">
-            <NavLink to="/overview">Genel Bakış</NavLink>
-            <NavLink to="/members">Üyeler</NavLink>
-            <NavLink to="/entries">Geçişler</NavLink>
-            <NavLink to="/security">Güvenlik</NavLink>
+            <NavLink to="/overview">{t("Genel Bakış")}</NavLink>
+            <NavLink to="/members">{t("Üyeler")}</NavLink>
+            <NavLink to="/entries">{t("Geçişler")}</NavLink>
+            <NavLink to="/security">{t("Güvenlik")}</NavLink>
             {profile?.role === "admin" && (
-              <NavLink to="/devices">Cihazlar</NavLink>
+              <NavLink to="/devices">{t("Cihazlar")}</NavLink>
             )}
             {profile?.role === "admin" && (
-              <NavLink to="/settings">Ayarlar</NavLink>
+              <NavLink to="/settings">{t("Ayarlar")}</NavLink>
             )}
             {profile?.role === "admin" && (
-              <NavLink to="/audit">İşlem kaydı</NavLink>
+              <NavLink to="/audit">{t("İşlem kaydı")}</NavLink>
             )}
-            {profile?.role === "admin" && <NavLink to="/kvkk">KVKK</NavLink>}
+            {profile?.role === "admin" && (
+              <NavLink to="/kvkk">{t("Veri Koruma")}</NavLink>
+            )}
           </nav>
         </div>
         <div className="topbar-right">
           <span className="topbar-date">{todayLabel}</span>
           <span className="topbar-who">
-            {profile?.role?.toUpperCase()} · {profile?.email}
+            {roleLabel(profile?.role, t)} · {profile?.email}
           </span>
+          <LanguageSwitcher compact />
           <button
             className="ghost"
             onClick={() => authClient.signOut().then(() => refetch())}
           >
-            Çıkış
+            {t("Çıkış")}
           </button>
         </div>
       </header>
@@ -67,11 +89,12 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 function Gate() {
+  const { t } = useTranslation();
   const { user, isPending, refetch } = useSessionUser();
   const { profile, loading, refresh } = useProfile();
 
   if (isPending || (user && loading)) {
-    return <div className="auth-wrap">Yükleniyor…</div>;
+    return <div className="auth-wrap">{t("Yükleniyor…")}</div>;
   }
   if (!user || !profile) {
     return <Login />;
@@ -83,12 +106,13 @@ function Gate() {
     return (
       <div className="auth-wrap">
         <div className="auth-card">
-          <h1>Yetkisiz</h1>
+          <LanguageSwitcher />
+          <h1>{t("Yetkisiz")}</h1>
           <p className="sub">
-            Bu panel salon personeli içindir. Mobil uygulamayı kullanın.
+            {t("Bu panel salon personeli içindir. Mobil uygulamayı kullanın.")}
           </p>
           <button onClick={() => authClient.signOut().then(() => refetch())}>
-            Çıkış
+            {t("Çıkış")}
           </button>
         </div>
       </div>
