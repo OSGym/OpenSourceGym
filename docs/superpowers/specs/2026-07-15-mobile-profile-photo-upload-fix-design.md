@@ -22,6 +22,8 @@ Ayrıca ImagePicker'ın `quality` seçeneği yalnızca sıkıştırma kalitesini
 
 `base64: true`, base64 boşluk kontrolü ve data URL oluşturma kaldırılacak. Native bağımlılığın kullanılabilmesi için Android geliştirme istemcisi bağımlılıklar güncellendikten sonra yeniden derlenecek.
 
+Native modül, profil ekranı yüklenirken statik olarak değil fotoğraf işleme işlemi içinde dinamik olarak yüklenecek. Böylece modülü içermeyen eski bir development client tüm uygulamayı açılışta çökertmek yerine mevcut fotoğraf hata yoluna düşecek. Başarılı fotoğraf işleme için development client'ın yeniden derlenmesi yine gereklidir.
+
 ## Hata Yönetimi
 
 İzin reddi, seçimin iptali, görsel işleme hatası, yerel dosya okuma hatası ve API hatası mevcut kullanıcı mesajlarına düşmeye devam edecek. Başarısız işlem profil fotoğrafı durumunu değiştirmeyecek ve meşgul durumu `finally` bloğunda temizlenecek.

@@ -89,23 +89,30 @@ export function Home({
       mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.85,
-      // ImagePicker base64 alanını JPEG olarak üretir; böylece HEIC gibi
-      // cihaz biçimleri ek bir native dönüştürme modülü olmadan yüklenir.
-      base64: true,
+      quality: 1,
       allowsMultipleSelection: false,
     });
     if (selected.canceled || !selected.assets[0]) return;
 
     setPhotoBusy(true);
     try {
-      const jpegBase64 = selected.assets[0].base64;
-      if (!jpegBase64) {
-        throw new Error("Seçilen fotoğraf JPEG biçimine dönüştürülemedi.");
-      }
+      // Native modülü yalnızca fotoğraf işlenirken yükle. Böylece modülü henüz
+      // içermeyen eski development client'lar uygulama açılışında çökmez.
+      const { ImageManipulator, SaveFormat } = await import(
+        "expo-image-manipulator"
+      );
+      const context = ImageManipulator.manipulate(selected.assets[0].uri);
+      // Tek boyut ver: iki boyut vermek görseli 1024×1024'e esnetir (stretch);
+      // kare kırpma sunucudaki fit: "cover" normalizasyonuna bırakılır.
+      context.resize({ width: 1024 });
+      const rendered = await context.renderAsync();
+      const normalized = await rendered.saveAsync({
+        format: SaveFormat.JPEG,
+        compress: 0.88,
+      });
       const response = await uploadBinary<ProfilePhotoResponse>(
         "/api/me/profile-photo",
-        `data:image/jpeg;base64,${jpegBase64}`,
+        normalized.uri,
         "image/jpeg",
       );
       setProfilePhotoUrl(response.profilePhotoUrl);
