@@ -84,7 +84,7 @@ export function Entries() {
             {entries.map((e) => (
               <tr key={e.id}>
                 <td>{new Date(e.at).toLocaleString(locale)}</td>
-                <td>{e.deviceName}</td>
+                <td>{e.deviceName || "—"}</td>
                 <td>{e.memberName ?? "—"}</td>
                 <td>
                   {e.allowed ? (

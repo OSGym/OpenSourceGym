@@ -186,6 +186,8 @@ const en = {
     "This token is shown only now; save it in the device configuration. If you lose it, delete and add the device again.",
   "Bu statik QR'ı yazdırıp turnikeye yapıştırın — üyeler girişte bunu okutacak.":
     "Print this static QR code and attach it to the turnstile for members to scan.",
+  "Salon konumu yapılandırılmamış: statik turnike QR'ının fotoğrafı salon dışından da geçiş açabilir. Ayarlar sayfasından konum doğrulamasını etkinleştirin.":
+    "Gym location is not configured: a photo of the static turnstile QR can open the gate from outside the gym. Enable location verification on the Settings page.",
   "{{name}} QR kodu": "QR code for {{name}}",
   "QR'ı yazdır": "Print QR",
   Yazdır: "Print",

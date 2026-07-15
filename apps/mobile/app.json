@@ -38,7 +38,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Gallery access is required to select a profile photo.",
-          "cameraPermission": "Camera access is required to scan the turnstile QR code.",
+          "cameraPermission": false,
           "microphonePermission": false
         }
       ],

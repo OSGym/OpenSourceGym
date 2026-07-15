@@ -1,10 +1,23 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import QRCode from "qrcode";
-import type { Device, DeviceCreated, DeviceDirection } from "@opengym/shared";
+import type {
+  Device,
+  DeviceCreated,
+  DeviceDirection,
+  GymSettings,
+} from "@opengym/shared";
 import { api } from "../lib/api";
 import { errorMessage } from "../i18n/errors";
 import { dateLocale } from "../i18n/format";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 // Yazdırma penceresine yazılan minimal sayfa: turnikeye yapıştırılacak QR + etiket
 function printQr(
@@ -18,15 +31,24 @@ function printQr(
     return;
   }
   win.document.write(`<!doctype html>
-    <html><head><title>${title}</title></head>
+    <html><head><title>${escapeHtml(title)}</title></head>
     <body style="text-align:center;font-family:sans-serif;padding:40px;">
-      <h2>${name}</h2>
-      <p>${direction}</p>
+      <h2>${escapeHtml(name)}</h2>
+      <p>${escapeHtml(direction)}</p>
       <img src="${dataUrl}" style="width:320px;height:320px;" />
     </body></html>`);
   win.document.close();
-  win.focus();
-  win.print();
+  // Görsel yüklenmeden print açılırsa çıktı boş kalabilir
+  const img = win.document.querySelector("img");
+  const doPrint = () => {
+    win.focus();
+    win.print();
+  };
+  if (img && !img.complete) {
+    img.onload = doPrint;
+  } else {
+    doPrint();
+  }
 }
 
 export function Devices() {
@@ -46,6 +68,15 @@ export function Devices() {
   const [copied, setCopied] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [locationConfigured, setLocationConfigured] = useState(true);
+
+  useEffect(() => {
+    // Statik QR fiziksel varlık kanıtı taşımaz; konum doğrulaması kapalıysa
+    // yönetici uyarılır (okunamazsa uyarı gösterilmez)
+    api<GymSettings>("/api/admin/settings")
+      .then((s) => setLocationConfigured(s.location !== null))
+      .catch(() => undefined);
+  }, []);
 
   async function load() {
     try {
@@ -132,6 +163,13 @@ export function Devices() {
   return (
     <div className="stagger">
       <h1>{t("Cihazlar")}</h1>
+      {!locationConfigured && (
+        <div className="msg warn">
+          {t(
+            "Salon konumu yapılandırılmamış: statik turnike QR'ının fotoğrafı salon dışından da geçiş açabilir. Ayarlar sayfasından konum doğrulamasını etkinleştirin.",
+          )}
+        </div>
+      )}
       {error && <div className="msg error">{error}</div>}
       {created && (
         <div className="panel">

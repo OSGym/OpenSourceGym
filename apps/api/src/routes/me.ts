@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import type {
+  GateRejectCode,
   GateScanResponse,
   GymSettings,
   MyDeletionRequest,
@@ -170,6 +171,16 @@ meRouter.post(
 
     const verified = verifyGateQr(qr);
     if (!verified.ok) {
+      // Cihaz çözülemedi — olay yine de denetim izine boş cihazla yazılır
+      enqueueEntryEvent({
+        deviceId: "",
+        deviceName: "",
+        userId: req.user!.id,
+        memberName: req.user!.name,
+        allowed: false,
+        reason: "INVALID_QR",
+        at: new Date(),
+      });
       sendApiError(
         res,
         403,
@@ -180,11 +191,36 @@ meRouter.post(
     }
     const { deviceId } = verified;
 
+    // Cihaz, sonraki tüm ret kayıtlarında adıyla görünebilsin diye reddetme
+    // kontrollerinden önce okunur
+    const device = await db
+      .collection("devices")
+      .findOne({ _id: new ObjectId(deviceId) });
+    const deviceName = device ? (device.name as string) : "";
+    const direction = (device?.direction as "in" | "out" | undefined) ?? "in";
+
+    // Her ret hem yanıtı hem entry_events denetim kaydını üretir
+    const deny = (reason: GateRejectCode, message: string): void => {
+      enqueueEntryEvent({
+        deviceId,
+        deviceName,
+        userId: req.user!.id,
+        memberName: req.user!.name,
+        allowed: false,
+        reason,
+        at: new Date(),
+      });
+      sendApiError(res, 403, reason, message);
+    };
+
+    if (!device) {
+      deny("UNKNOWN_DEVICE", "Bu turnike artık kayıtlı değil. Resepsiyona başvurun.");
+      return;
+    }
+
     // Faz 6: eskalasyon eşiğini aşan hesaplarda geçiş geçici olarak kapalıdır
     if (await isQrBlocked(req.user!.id)) {
-      sendApiError(
-        res,
-        403,
+      deny(
         "SHARING_BLOCKED",
         "Hesabınızda olağan dışı kullanım tespit edildi. Geçiş geçici olarak kapatıldı. Lütfen resepsiyona başvurun.",
       );
@@ -198,44 +234,16 @@ meRouter.post(
     // sinyalini beslememeli
     if (mocked === true) {
       await recordSharingSignal(req.user!, "mock-location", { lat, lng });
-      sendApiError(
-        res,
-        403,
+      deny(
         "MOCK_LOCATION",
         "Sahte konum tespit edildi. Konum taklit uygulamalarını kapatıp tekrar deneyin.",
       );
       return;
     }
 
-    const device = await db
-      .collection("devices")
-      .findOne({ _id: new ObjectId(deviceId) });
-    if (!device) {
-      sendApiError(
-        res,
-        403,
-        "UNKNOWN_DEVICE",
-        "Bu turnike artık kayıtlı değil. Resepsiyona başvurun.",
-      );
-      return;
-    }
-    const deviceName = device.name as string;
-    const direction = (device.direction as "in" | "out" | undefined) ?? "in";
-
     // Çıkışta abonelik aranmaz — süresi bitmiş üye de dışarı çıkabilmeli
     if (direction === "in" && !(await hasActiveSubscription(req.user!.id))) {
-      enqueueEntryEvent({
-        deviceId,
-        deviceName,
-        userId: req.user!.id,
-        memberName: req.user!.name,
-        allowed: false,
-        reason: "NO_ACTIVE_SUBSCRIPTION",
-        at: new Date(),
-      });
-      sendApiError(
-        res,
-        403,
+      deny(
         "NO_ACTIVE_SUBSCRIPTION",
         "Aktif aboneliğiniz yok. Salon resepsiyonuna başvurun.",
       );
@@ -296,18 +304,7 @@ meRouter.post(
     // Operatör konum doğrulamayı yapılandırmamışsa mesafe kontrolü atlanır
     if (location) {
       if (typeof lat !== "number" || typeof lng !== "number") {
-        enqueueEntryEvent({
-          deviceId,
-          deviceName,
-          userId: req.user!.id,
-          memberName: req.user!.name,
-          allowed: false,
-          reason: "LOCATION_REQUIRED",
-          at: new Date(),
-        });
-        sendApiError(
-          res,
-          403,
+        deny(
           "LOCATION_REQUIRED",
           "Konum bilgisi alınamadı. Konum servisini açıp tekrar deneyin.",
         );
@@ -315,18 +312,7 @@ meRouter.post(
       }
       const distance = distanceMeters(lat, lng, location.lat, location.lng);
       if (distance > location.radiusM) {
-        enqueueEntryEvent({
-          deviceId,
-          deviceName,
-          userId: req.user!.id,
-          memberName: req.user!.name,
-          allowed: false,
-          reason: "OUT_OF_RANGE",
-          at: new Date(),
-        });
-        sendApiError(
-          res,
-          403,
+        deny(
           "OUT_OF_RANGE",
           "Salon konumunda görünmüyorsunuz. Geçiş yalnızca salonda yapılabilir.",
         );
@@ -349,18 +335,10 @@ meRouter.post(
 
     const openMs = 500;
     if (!openDevice(deviceId, openMs)) {
-      enqueueEntryEvent({
-        deviceId,
-        deviceName,
-        userId: req.user!.id,
-        memberName: req.user!.name,
-        allowed: false,
-        reason: "DEVICE_OFFLINE",
-        at: new Date(),
-      });
-      sendApiError(
-        res,
-        403,
+      // Kapı açılmadı — kilit tutulmasın ki üye bağlantı gelince hemen
+      // yeniden deneyebilsin
+      await redis.del(lockKey);
+      deny(
         "DEVICE_OFFLINE",
         "Turnike bağlantısı yok. Lütfen resepsiyona başvurun.",
       );

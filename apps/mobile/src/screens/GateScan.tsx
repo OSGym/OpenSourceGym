@@ -28,7 +28,10 @@ type ScanState =
   | { kind: "denied"; message: string; code?: string };
 
 const GATE_QR_PREFIX = "OGGATE1.";
-const RESCAN_DELAY_MS = 2500;
+// Sunucudaki çift tarama kilidinden (3 sn) uzun olmalı; kamera kilit hâlâ
+// aktifken yeniden açılırsa başarılı geçiş 429 ile reddedilmiş gibi görünür
+const RESCAN_DELAY_MS = 3500;
+const LOCATION_TIMEOUT_MS = 5000;
 
 export function GateScan() {
   const { t } = useTranslation();
@@ -75,12 +78,21 @@ export function GateScan() {
       try {
         const { granted } = await Location.requestForegroundPermissionsAsync();
         if (granted) {
-          const position = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          lat = position.coords.latitude;
-          lng = position.coords.longitude;
-          mocked = position.mocked === true;
+          // GPS bazen takılır — süresiz "doğrulanıyor" ekranı yerine zaman
+          // aşımında konumsuz devam edilir; kararı API verir
+          const position = await Promise.race([
+            Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            }),
+            new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), LOCATION_TIMEOUT_MS),
+            ),
+          ]);
+          if (position) {
+            lat = position.coords.latitude;
+            lng = position.coords.longitude;
+            mocked = position.mocked === true;
+          }
         }
       } catch {
         // Konumsuz geçişe izin verilip verilmeyeceğine API karar verir.

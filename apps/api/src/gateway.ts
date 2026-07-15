@@ -135,9 +135,17 @@ async function authenticate(
     touchLastSeen(msg.deviceId);
     logDeviceStatus(msg.deviceId, true);
     // Cihaz artık dumb client: auth sonrası yalnızca "open" komutu dinler,
-    // kendisinden gelen mesajlar yok sayılır (eski firmware'i çökertmemek için)
+    // kendisinden gelen mesajlar yok sayılır (eski firmware'i çökertmemek için).
+    // Eski firmware her QR okutuşunda "scan" gönderir — log seli olmasın diye
+    // bağlantı başına yalnızca bir kez uyarılır.
+    let warnedUnexpectedMessage = false;
     ws.on("message", () => {
-      console.warn("cihazdan beklenmeyen mesaj (yok sayıldı):", ws.deviceName);
+      if (warnedUnexpectedMessage) return;
+      warnedUnexpectedMessage = true;
+      console.warn(
+        "cihazdan beklenmeyen mesaj (bu bağlantıda yok sayılacak):",
+        ws.deviceName,
+      );
     });
   } catch (err) {
     console.warn("cihaz kimlik doğrulaması başarısız:", err);

@@ -85,6 +85,8 @@ export function Register({
     if (error) {
       if (error.code === "PHONE_ALREADY_EXISTS") {
         setError(t("Bu telefon numarası ile kayıtlı hesap var."));
+      } else if (error.code === "INVALID_PHONE_NUMBER") {
+        setError(t("Geçerli bir telefon numarası girin."));
       } else if (
         error.code === "USER_ALREADY_EXISTS" ||
         error.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"
