@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { authClient } from "../lib/auth";
-import { Button, ErrorMsg, Field, styles } from "../ui";
+import { AuthShell, Button, ErrorMsg, Field, LogoMark, styles } from "../ui";
 
 export function ForgotPassword({
   onBack,
@@ -10,14 +11,18 @@ export function ForgotPassword({
   onBack: () => void;
   onSent: (email: string) => void;
 }) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const emailRef = useRef<TextInput>(null);
 
   async function submit() {
     setError(null);
     if (!email) {
-      setError("E-posta adresinizi girin.");
+      setEmailError(t("E-posta adresinizi girin."));
+      emailRef.current?.focus();
       return;
     }
     setBusy(true);
@@ -28,8 +33,8 @@ export function ForgotPassword({
     if (error) {
       setError(
         error.status === 429
-          ? "Çok fazla deneme. Lütfen bir dakika bekleyin."
-          : "İstek gönderilemedi. Lütfen tekrar deneyin.",
+          ? t("Çok fazla deneme. Lütfen bir dakika bekleyin.")
+          : t("İstek gönderilemedi. Lütfen tekrar deneyin."),
       );
       return;
     }
@@ -37,26 +42,44 @@ export function ForgotPassword({
   }
 
   return (
-    <View style={styles.screen}>
-      <Text style={styles.brand}>
-        Open<Text style={styles.brandAccent}>Gym</Text>
-      </Text>
+    <AuthShell
+      footer={
+        <Pressable accessibilityRole="button" onPress={onBack}>
+          <Text style={styles.link}>{t("Giriş ekranına dön")}</Text>
+        </Pressable>
+      }
+    >
+      <LogoMark />
+      <Text style={styles.heading}>{t("Şifreni yenile")}</Text>
       <Text style={styles.sub}>
-        E-posta adresinizi girin, size bir şifre sıfırlama kodu gönderelim.
+        {t(
+          "E-posta adresinizi girin, size bir şifre sıfırlama kodu gönderelim.",
+        )}
       </Text>
-      <ErrorMsg text={error} />
-      <Field
-        label="E-posta"
-        value={email}
-        onChangeText={setEmail}
-        keyboardType="email-address"
-        autoCapitalize="none"
-        autoComplete="email"
-      />
-      <Button title="Sıfırlama kodu gönder" onPress={submit} busy={busy} />
-      <Pressable onPress={onBack}>
-        <Text style={styles.link}>Giriş ekranına dön</Text>
-      </Pressable>
-    </View>
+
+      <View style={{ marginTop: 28 }}>
+        <ErrorMsg text={error} />
+      </View>
+
+      <View style={{ marginTop: error ? 0 : 8 }}>
+        <Field
+          inputRef={emailRef}
+          label={t("E-posta")}
+          value={email}
+          error={emailError}
+          onChangeText={(value) => {
+            setEmail(value);
+            if (emailError) setEmailError(null);
+          }}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoComplete="email"
+          returnKeyType="send"
+          onSubmitEditing={() => void submit()}
+        />
+      </View>
+
+      <Button title={t("Sıfırlama kodu gönder")} onPress={submit} busy={busy} />
+    </AuthShell>
   );
 }

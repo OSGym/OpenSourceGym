@@ -237,6 +237,38 @@ button.ghost:hover {
   background: rgba(243, 242, 238, 0.08);
 }
 
+.language-switcher {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-bottom: 14px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.language-switcher.compact {
+  margin: 0;
+}
+
+.language-switcher button {
+  min-width: 0;
+  padding: 3px 2px;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.language-switcher button:hover,
+.language-switcher button.active {
+  background: transparent;
+  border-bottom-color: currentColor;
+  color: var(--ink);
+}
+
 /* ---- overview dashboard ---- */
 
 .kpi-grid {

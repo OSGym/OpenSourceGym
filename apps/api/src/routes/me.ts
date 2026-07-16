@@ -3,24 +3,27 @@ import { createHash } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import type {
+  GateRejectCode,
+  GateScanResponse,
   GymSettings,
   MyDeletionRequest,
   MySubscription,
   OccupancyResponse,
   ProfilePhotoResponse,
-  QrTokenResponse,
 } from "@opengym/shared";
 import { db } from "../db.js";
+import { sendApiError } from "../apiError.js";
 import { redis } from "../redis.js";
 import { requireRole } from "../middleware.js";
 import { distanceMeters } from "../geo.js";
-import { issueQrToken } from "../qr.js";
+import { verifyGateQr } from "../gateQr.js";
 import {
   getSubscriptionSummary,
   hasActiveSubscription,
 } from "../subscriptions.js";
-import { isAnyDeviceOnline } from "../gateway.js";
-import { getOccupancy } from "../occupancy.js";
+import { openDevice } from "../gateway.js";
+import { getOccupancy, markInside, markOutside } from "../occupancy.js";
+import { enqueueEntryEvent } from "../eventQueue.js";
 import { logAudit } from "../audit.js";
 import { isQrBlocked, recordSharingSignal, QR_LOC_KEY } from "../sharing.js";
 import {
@@ -50,7 +53,12 @@ meRouter.put(
   express.raw({ type: "*/*", limit: "10mb" }),
   async (req, res) => {
     if (!Buffer.isBuffer(req.body)) {
-      res.status(400).json({ message: "Fotoğraf verisi gönderilmedi." });
+      sendApiError(
+        res,
+        400,
+        "PROFILE_PHOTO_MISSING",
+        "Fotoğraf verisi gönderilmedi.",
+      );
       return;
     }
     try {
@@ -64,25 +72,28 @@ meRouter.put(
       res.json(body);
     } catch (error) {
       if (error instanceof ProfilePhotoInputError) {
-        res.status(400).json({ message: error.message });
+        sendApiError(res, 400, "PROFILE_PHOTO_INVALID", error.message);
         return;
       }
       if (error instanceof ProfilePhotoBusyError) {
-        res.status(409).json({ message: error.message });
+        sendApiError(res, 409, "PROFILE_PHOTO_BUSY", error.message);
         return;
       }
       if (error instanceof ProfilePhotoRateLimitError) {
-        res.status(429).json({ message: error.message });
+        sendApiError(res, 429, "PROFILE_PHOTO_RATE_LIMITED", error.message);
         return;
       }
       if (error instanceof ProfilePhotoConfigError) {
-        res.status(503).json({ message: error.message });
+        sendApiError(res, 503, "PROFILE_PHOTO_UNAVAILABLE", error.message);
         return;
       }
       console.error("Profil fotoğrafı yüklenemedi", error);
-      res.status(503).json({
-        message: "Profil fotoğrafı yüklenemedi. Lütfen tekrar deneyin.",
-      });
+      sendApiError(
+        res,
+        503,
+        "PROFILE_PHOTO_UNAVAILABLE",
+        "Profil fotoğrafı yüklenemedi. Lütfen tekrar deneyin.",
+      );
     }
   },
 );
@@ -95,17 +106,20 @@ meRouter.delete("/profile-photo", requireRole("member"), async (req, res) => {
     res.json(body);
   } catch (error) {
     if (error instanceof ProfilePhotoBusyError) {
-      res.status(409).json({ message: error.message });
+      sendApiError(res, 409, "PROFILE_PHOTO_BUSY", error.message);
       return;
     }
     if (error instanceof ProfilePhotoConfigError) {
-      res.status(503).json({ message: error.message });
+      sendApiError(res, 503, "PROFILE_PHOTO_UNAVAILABLE", error.message);
       return;
     }
     console.error("Profil fotoğrafı kaldırılamadı", error);
-    res.status(503).json({
-      message: "Profil fotoğrafı kaldırılamadı. Lütfen tekrar deneyin.",
-    });
+    sendApiError(
+      res,
+      503,
+      "PROFILE_PHOTO_UNAVAILABLE",
+      "Profil fotoğrafı kaldırılamadı. Lütfen tekrar deneyin.",
+    );
   }
 });
 
@@ -119,74 +133,126 @@ meRouter.get(
   },
 );
 
-const qrTokenSchema = z.object({
+const gateScanSchema = z.object({
+  qr: z.string().min(1).max(200),
   lat: z.number().optional(),
   lng: z.number().optional(),
   /** Android: expo-location sahte konum (mock location) tespiti — Faz 6 */
   mocked: z.boolean().optional(),
 });
 
-// US-7: turnikede okutulacak kısa ömürlü, imzalı QR token üretimi
+// US-7: üyenin turnikeye yapıştırılmış statik QR'ı okutup geçiş talep etmesi
 meRouter.post(
-  "/qr-token",
+  "/gate-scan",
   requireRole("admin", "staff", "member"),
   async (req, res) => {
-    const parsed = qrTokenSchema.safeParse(req.body ?? {});
+    const parsed = gateScanSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      res.status(400).json({ message: "Geçersiz konum bilgisi." });
+      sendApiError(res, 400, "INVALID_REQUEST", "Geçersiz istek.");
       return;
     }
-    const { lat, lng, mocked } = parsed.data;
+    const { qr, lat, lng, mocked } = parsed.data;
 
-    // Basit hız sınırı: kullanıcı başına dakikada 30 QR isteği
-    const rlKey = `og:rl:qr-token:${req.user!.id}`;
+    // Basit hız sınırı: kullanıcı başına dakikada 30 tarama isteği
+    const rlKey = `og:rl:gate-scan:${req.user!.id}`;
     const count = await redis.incr(rlKey);
-    if (count === 1) {
-      await redis.expire(rlKey, 60);
-    }
+    // NX: TTL yalnızca yoksa yazılır; incr/expire arasında çökme olursa
+    // sonraki istek TTL'i onarır (aksi halde anahtar süresiz kalıp kullanıcıyı kilitler)
+    await redis.expire(rlKey, 60, "NX");
     if (count > 30) {
-      res
-        .status(429)
-        .json({ message: "Çok fazla istek. Lütfen biraz bekleyin." });
+      sendApiError(
+        res,
+        429,
+        "RATE_LIMITED",
+        "Çok fazla istek. Lütfen biraz bekleyin.",
+      );
       return;
     }
 
-    // Faz 6: eskalasyon eşiğini aşan hesaplarda QR üretimi geçici olarak kapalıdır
-    if (await isQrBlocked(req.user!.id)) {
-      res.status(403).json({
-        code: "SHARING_BLOCKED",
-        message:
-          "Hesabınızda olağan dışı kullanım tespit edildi. QR üretimi geçici olarak kapatıldı. Lütfen resepsiyona başvurun.",
+    const verified = verifyGateQr(qr);
+    if (!verified.ok) {
+      // Cihaz çözülemedi — olay yine de denetim izine boş cihazla yazılır
+      enqueueEntryEvent({
+        deviceId: "",
+        deviceName: "",
+        userId: req.user!.id,
+        memberName: req.user!.name,
+        allowed: false,
+        reason: "INVALID_QR",
+        at: new Date(),
       });
+      sendApiError(
+        res,
+        403,
+        "INVALID_QR",
+        "Geçersiz QR kodu. Turnikedeki kodu tekrar okutun.",
+      );
+      return;
+    }
+    const { deviceId } = verified;
+
+    // Cihaz, sonraki tüm ret kayıtlarında adıyla görünebilsin diye reddetme
+    // kontrollerinden önce okunur
+    const device = await db
+      .collection("devices")
+      .findOne({ _id: new ObjectId(deviceId) });
+    const deviceName = device ? (device.name as string) : "";
+    const direction = (device?.direction as "in" | "out" | undefined) ?? "in";
+
+    // Her ret hem yanıtı hem entry_events denetim kaydını üretir
+    const deny = (reason: GateRejectCode, message: string): void => {
+      enqueueEntryEvent({
+        deviceId,
+        deviceName,
+        userId: req.user!.id,
+        memberName: req.user!.name,
+        allowed: false,
+        reason,
+        at: new Date(),
+      });
+      sendApiError(res, 403, reason, message);
+    };
+
+    if (!device) {
+      deny("UNKNOWN_DEVICE", "Bu turnike artık kayıtlı değil. Resepsiyona başvurun.");
+      return;
+    }
+
+    // Faz 6: eskalasyon eşiğini aşan hesaplarda geçiş geçici olarak kapalıdır
+    if (await isQrBlocked(req.user!.id)) {
+      deny(
+        "SHARING_BLOCKED",
+        "Hesabınızda olağan dışı kullanım tespit edildi. Geçiş geçici olarak kapatıldı. Lütfen resepsiyona başvurun.",
+      );
       return;
     }
 
     // Faz 6: expo-location "mocked" bayrağı true ise sahte konum uygulaması
-    // tespit edilmiştir — QR üretimi reddedilir (giriş etkilenmez). Bu kontrol
-    // salon konumu yapılandırılmamış olsa bile çalışır ve konum geçmişi
-    // (QR_LOC_KEY) yazılmadan ÖNCE yapılır: sahte koordinatlar konum
-    // tutarsızlığı sinyalini beslememeli
+    // tespit edilmiştir — geçiş reddedilir. Bu kontrol salon konumu
+    // yapılandırılmamış olsa bile çalışır ve konum geçmişi (QR_LOC_KEY)
+    // yazılmadan ÖNCE yapılır: sahte koordinatlar konum tutarsızlığı
+    // sinyalini beslememeli
     if (mocked === true) {
       await recordSharingSignal(req.user!, "mock-location", { lat, lng });
-      res.status(403).json({
-        code: "MOCK_LOCATION",
-        message:
-          "Sahte konum tespit edildi. Konum taklit uygulamalarını kapatıp tekrar deneyin.",
-      });
+      deny(
+        "MOCK_LOCATION",
+        "Sahte konum tespit edildi. Konum taklit uygulamalarını kapatıp tekrar deneyin.",
+      );
       return;
     }
 
-    if (!(await hasActiveSubscription(req.user!.id))) {
-      res.status(403).json({
-        code: "NO_ACTIVE_SUBSCRIPTION",
-        message: "Aktif aboneliğiniz yok. Salon resepsiyonuna başvurun.",
-      });
+    // Çıkışta abonelik aranmaz — süresi bitmiş üye de dışarı çıkabilmeli
+    if (direction === "in" && !(await hasActiveSubscription(req.user!.id))) {
+      deny(
+        "NO_ACTIVE_SUBSCRIPTION",
+        "Aktif aboneliğiniz yok. Salon resepsiyonuna başvurun.",
+      );
       return;
     }
 
-    // Faz 6: iki farklı cihazdan kısa aralıkla, birbirinden uzak konumlarda QR
-    // istekleri gelmesi hesap paylaşımı şüphesi olarak kaydedilir (istek
-    // reddedilmez — yalnızca sinyal olarak işlenir)
+    // Faz 6: iki farklı cihazdan kısa aralıkla, birbirinden uzak konumlarda
+    // tarama istekleri gelmesi hesap paylaşımı şüphesi olarak kaydedilir
+    // (istek reddedilmez — yalnızca sinyal olarak işlenir)
     if (typeof lat === "number" && typeof lng === "number") {
       // Ham oturum token'ı hiçbir zaman sinyal/audit kaydına yazılmaz —
       // parmak izi header'ı yoksa (ör. iOS, web) token'ın SHA-256 hash'i
@@ -194,26 +260,30 @@ meRouter.post(
       const headerFp = req.header("x-device-fingerprint");
       const validHeaderFp =
         headerFp && /^[a-f0-9]{64}$/.test(headerFp) ? headerFp : null;
-      const deviceId =
+      const fingerprintId =
         validHeaderFp ??
         (req.sessionToken
           ? createHash("sha256").update(req.sessionToken).digest("hex")
           : null);
       const locKey = QR_LOC_KEY(req.user!.id);
       const prevRaw = await redis.get(locKey);
-      if (prevRaw && deviceId) {
+      if (prevRaw && fingerprintId) {
         const prev = JSON.parse(prevRaw) as {
           d: string | null;
           lat: number;
           lng: number;
           at: number;
         };
-        if (prev.d && prev.d !== deviceId && Date.now() - prev.at < 120_000) {
+        if (
+          prev.d &&
+          prev.d !== fingerprintId &&
+          Date.now() - prev.at < 120_000
+        ) {
           const distanceM = distanceMeters(prev.lat, prev.lng, lat, lng);
           if (distanceM > 1000) {
             await recordSharingSignal(req.user!, "location-inconsistency", {
               distanceM,
-              deviceId,
+              deviceId: fingerprintId,
               prevDeviceId: prev.d,
             });
           }
@@ -221,7 +291,7 @@ meRouter.post(
       }
       await redis.set(
         locKey,
-        JSON.stringify({ d: deviceId, lat, lng, at: Date.now() }),
+        JSON.stringify({ d: fingerprintId, lat, lng, at: Date.now() }),
         { EX: 120 },
       );
     }
@@ -234,30 +304,63 @@ meRouter.post(
     // Operatör konum doğrulamayı yapılandırmamışsa mesafe kontrolü atlanır
     if (location) {
       if (typeof lat !== "number" || typeof lng !== "number") {
-        res.status(403).json({
-          code: "LOCATION_REQUIRED",
-          message:
-            "Konum bilgisi alınamadı. Konum servisini açıp tekrar deneyin.",
-        });
+        deny(
+          "LOCATION_REQUIRED",
+          "Konum bilgisi alınamadı. Konum servisini açıp tekrar deneyin.",
+        );
         return;
       }
       const distance = distanceMeters(lat, lng, location.lat, location.lng);
       if (distance > location.radiusM) {
-        res.status(403).json({
-          code: "OUT_OF_RANGE",
-          message:
-            "Salon konumunda görünmüyorsunuz. QR yalnızca salonda üretilebilir.",
-        });
+        deny(
+          "OUT_OF_RANGE",
+          "Salon konumunda görünmüyorsunuz. Geçiş yalnızca salonda yapılabilir.",
+        );
         return;
       }
     }
 
-    const { token, expiresAt } = issueQrToken(req.user!.id);
-    const body: QrTokenResponse = {
-      token,
-      expiresAt: expiresAt.toISOString(),
-      gatewayOnline: isAnyDeviceOnline(),
-    };
+    // Kısa süreli çift tarama kilidi: aynı üye+cihaz için ard arda taramalar
+    const lockKey = `og:gate-open:${req.user!.id}:${deviceId}`;
+    const acquired = await redis.set(lockKey, "1", { NX: true, EX: 3 });
+    if (acquired === null) {
+      sendApiError(
+        res,
+        429,
+        "RATE_LIMITED",
+        "Çok fazla istek. Lütfen biraz bekleyin.",
+      );
+      return;
+    }
+
+    const openMs = 500;
+    if (!openDevice(deviceId, openMs)) {
+      // Kapı açılmadı — kilit tutulmasın ki üye bağlantı gelince hemen
+      // yeniden deneyebilsin
+      await redis.del(lockKey);
+      deny(
+        "DEVICE_OFFLINE",
+        "Turnike bağlantısı yok. Lütfen resepsiyona başvurun.",
+      );
+      return;
+    }
+
+    if (direction === "out") {
+      await markOutside(req.user!.id);
+    } else {
+      await markInside(req.user!.id);
+    }
+    enqueueEntryEvent({
+      deviceId,
+      deviceName,
+      userId: req.user!.id,
+      memberName: req.user!.name,
+      allowed: true,
+      reason: null,
+      at: new Date(),
+    });
+
+    const body: GateScanResponse = { ok: true, deviceName, direction, openMs };
     res.json(body);
   },
 );
@@ -315,9 +418,12 @@ meRouter.post(
   requireRole("admin", "staff", "member"),
   async (req, res) => {
     if (req.user!.role !== "member") {
-      res.status(403).json({
-        message: "Yalnızca üye hesapları silme talebi oluşturabilir.",
-      });
+      sendApiError(
+        res,
+        403,
+        "DELETION_MEMBER_ONLY",
+        "Yalnızca üye hesapları silme talebi oluşturabilir.",
+      );
       return;
     }
     const userId = new ObjectId(req.user!.id);
@@ -325,9 +431,12 @@ meRouter.post(
       .collection("deletion_requests")
       .findOne({ userId, status: "pending" });
     if (existingPending) {
-      res
-        .status(409)
-        .json({ message: "Zaten bekleyen bir silme talebiniz var." });
+      sendApiError(
+        res,
+        409,
+        "DELETION_ALREADY_PENDING",
+        "Zaten bekleyen bir silme talebiniz var.",
+      );
       return;
     }
     await db.collection("deletion_requests").insertOne({
@@ -354,9 +463,12 @@ meRouter.delete(
       status: "pending",
     });
     if (result.deletedCount === 0) {
-      res
-        .status(404)
-        .json({ message: "Bekleyen bir silme talebi bulunamadı." });
+      sendApiError(
+        res,
+        404,
+        "DELETION_NOT_PENDING",
+        "Bekleyen bir silme talebi bulunamadı.",
+      );
       return;
     }
     await logAudit(req.user!, "kvkk-deletion-cancelled");

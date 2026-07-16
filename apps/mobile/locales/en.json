@@ -1,0 +1,10 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Camera access is required to scan the turnstile QR code.",
+    "NSPhotoLibraryUsageDescription": "Gallery access is required to select a profile photo.",
+    "NSLocationWhenInUseUsageDescription": "Your location is used only to verify that you are at the gym."
+  },
+  "android": {
+    "app_name": "OpenGym"
+  }
+}

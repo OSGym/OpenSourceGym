@@ -16,6 +16,7 @@ import { startEntryEventConsumer } from "./eventQueue.js";
 import { backfillLegacyUserPhones } from "./phoneBackfill.js";
 import { repairLegacySubscriptionOverlaps } from "./subscriptions.js";
 import { assertProductionProfilePhotoConfig } from "./profilePhoto.js";
+import { sendApiError } from "./apiError.js";
 
 const app = express();
 
@@ -51,9 +52,12 @@ app.use(
       error.type === "entity.too.large" &&
       req.originalUrl.startsWith("/api/me/profile-photo")
     ) {
-      res.status(413).json({
-        message: "Fotoğraf en fazla 10 MB olabilir.",
-      });
+      sendApiError(
+        res,
+        413,
+        "PAYLOAD_TOO_LARGE",
+        "Fotoğraf en fazla 10 MB olabilir.",
+      );
       return;
     }
     next(error);

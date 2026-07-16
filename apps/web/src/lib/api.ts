@@ -1,10 +1,10 @@
 export class ApiError extends Error {
   constructor(
     public status: number,
-    message: string,
+    public serverMessage: string,
     public code?: string,
   ) {
-    super(message);
+    super(serverMessage);
   }
 }
 
@@ -25,7 +25,7 @@ export async function api<T>(
   if (!res.ok) {
     throw new ApiError(
       res.status,
-      data.message ?? `İstek başarısız (${res.status})`,
+      data.message ?? `Request failed (${res.status})`,
       data.code,
     );
   }
@@ -49,7 +49,7 @@ export async function authApi<T>(path: string, body?: unknown): Promise<T> {
   if (!res.ok) {
     throw new ApiError(
       res.status,
-      data.message ?? `İstek başarısız (${res.status})`,
+      data.message ?? `Request failed (${res.status})`,
       data.code,
     );
   }

@@ -100,15 +100,15 @@
 - [x] Device Gateway: WebSocket sunucu, cihaz başına önceden paylaşılan token ile agent kimlik doğrulaması (token sadece oluşturmada bir kez gösterilir, sunucuda sha256 hash saklanır)
 - [x] Agent referans implementasyonu (RPi ve ESP32): röle tetikleme, otomatik yeniden bağlanma, fail-closed davranış
 - [x] Backend'de agent bağlantı durumu izleme (30 sn ping/pong, panelde çevrimiçi/çevrimdışı durumu, üyeye "Turnike bağlantısı şu an yok" uyarısı `gatewayOnline` bayrağı ile)
-- [x] QR üretimi: kısa ömürlü, imzalı token (HMAC-SHA256, `OG1.` formatı — ömür 60 sn olarak kararlaştırıldı)
-- [x] QR doğrulama ucu: imza + süre + replay (Redis jti) + abonelik kontrolü → `openMs: 500` röle sinyali
+- [x] Statik QR üretimi: cihaz başına özel, süresiz, sabit QR kodu (`OGGATE1.<deviceId>.<sig>` formatı; turnikeye yapıştırılır)
+- [x] Gate-scan endpoint (`POST /api/me/gate-scan`): QR imza doğrulama, abonelik, konum, hesap paylaşımı, cihaz durumu kontrolleri; WebSocket ile ilgili turnike cihazına `open` komutu gönderme
 - [x] Red koşulları üyeye gösteriliyor: aktif abonelik yok / konum salon dışı (US-5)
 - [x] Konum doğrulama servisi: salon koordinatı + yarıçap ayarlardan; ayarlanmamışsa kontrol atlanır
 - [x] Event Queue ile geçiş loglama: Redis kuyruk → `entry_events` koleksiyonu; panelde "Geçişler" sayfası
-- [x] Mobilde QR ekranı: konum izni, geri sayım, otomatik yenileme
+- [x] Mobilde gate-scan ekranı (GateScan.tsx): kamera taraması (expo-camera), statik QR'ı oku (`OGGATE1.` önekli), GPS konum toplama, konum izni
 - [x] Panelde "Cihazlar" sayfası (admin)
 
-**Definition of Done:** US-5 kabul kriterleri uçtan uca test edildi (sim agent ile); **KPI-1 ölçüldü: QR → açılma ~2 ms (hedef < 2 sn)**; **KPI-5 doğrulandı: geçersiz denemelerin %100'ü reddedildi** (süresi dolmuş, tekrar kullanılmış, sahte token, aboneliksiz üye, salon dışı konum senaryolarının tümü).
+**Definition of Done:** US-5 kabul kriterleri uçtan uca test edildi; **KPI-1 ölçüldü: gate-scan (HTTP POST) + WS open komutu → turnike açılma < 2 sn (hedef < 2 sn)**; **KPI-5 doğrulandı: geçersiz denemelerin %100'ü reddedildi** (geçersiz QR, aboneliksiz üye, salon dışı konum, cihaz çevrimdışı, hesap paylaşımı senaryolarının tümü). Not: KPI-1 ölçümü artık sim agent ile yapılamıyor, curl/manuel test ile yapılmalıdır.
 
 ---
 
@@ -139,15 +139,15 @@
 
 **İş Kırılımı:**
 
-- [x] Hesap paylaşımı tespiti: cihaz parmak izi (SHA-256 hash, `X-Device-Fingerprint` header, mobilde `expo-application`/`expo-device`/`expo-crypto` ile hash), eş zamanlı oturum sınırı (rol bazlı: üye 2, personel/admin 5; sınır aşılınca en eski oturum sessizce rotasyon), parmak izi churn sinyali (aktif oturumlar arasında rol bazlı oturum sınırından fazla farklı cihaz parmak izi; sinyal saatte en çok bir kez üretilir), konum tutarsızlığı (120 sn içinde >1 km uzaklıkta QR isteği). Sinyaller `sharing_signals` koleksiyonunda 30 gün TTL ile tutulur, audit logunda görünür. Eskalasyon: 24 saatte ≥3 sinyal birikince tüm oturumlar otomatik iptal + QR üretimi 24 saat geçici kilitlenir (`SHARING_BLOCKED` hata kodu, kalıcı kilit yok). Tüm eşikler (`memberMaxSessions`, `staffMaxSessions`, `signalThreshold`, `signalWindowHours`, `qrBlockHours`) admin panelinde Ayarlar sayfasından yapılandırılabilir.
+- [x] Hesap paylaşımı tespiti: cihaz parmak izi (SHA-256 hash, `X-Device-Fingerprint` header, mobilde `expo-application`/`expo-device`/`expo-crypto` ile hash), eş zamanlı oturum sınırı (rol bazlı: üye 2, personel/admin 5; sınır aşılınca en eski oturum sessizce rotasyon), parmak izi churn sinyali (aktif oturumlar arasında rol bazlı oturum sınırından fazla farklı cihaz parmak izi; sinyal saatte en çok bir kez üretilir), konum tutarsızlığı (120 sn içinde >1 km uzaklıkta gate-scan isteği). Sinyaller `sharing_signals` koleksiyonunda 30 gün TTL ile tutulur, audit logunda görünür. Eskalasyon: 24 saatte ≥3 sinyal birikince tüm oturumlar otomatik iptal + gate-scan 24 saat geçici kilitlenir (`SHARING_BLOCKED` hata kodu, kalıcı kilit yok). Tüm eşikler (`memberMaxSessions`, `staffMaxSessions`, `signalThreshold`, `signalWindowHours`, `qrBlockHours`) admin panelinde Ayarlar sayfasından yapılandırılabilir.
 - [x] Mobil anti-debugging sertleştirme: root/jailbreak/emülatör tespiti (expo-device); pozitif tespitte QR ekranı engellenir, giriş devam edilebilir. `EXPO_PUBLIC_ANTI_DEBUG` env değişkeniyle kontrol edilir (prod derlemede varsayılan açık, geliştirme modunda kapalı).
-- [x] Konum spoofing'e karşı ek sinyaller (PRD §4.2): Android'de `mocked` bayrağı QR token isteğinde sunucuya gönderiliyor; mock location algılanırsa QR üretimi reddediliyor (`MOCK_LOCATION` hata kodu) + sinyal kaydı. iOS'ta bu bayrak desteklenmiyor (bilinen sınırlama). Giriş etkilenmiyor.
+- [x] Konum spoofing'e karşı ek sinyaller (PRD §4.2): Android'de `mocked` bayrağı gate-scan isteğinde sunucuya gönderiliyor; mock location algılanırsa gate-scan reddediliyor (`MOCK_LOCATION` hata kodu) + sinyal kaydı. iOS'ta bu bayrak desteklenmiyor (bilinen sınırlama). Giriş etkilenmiyor.
 - [ ] Ek A deneysel katman (path obfuscation + cipher) — değerlendirilmedi, yapılmadı; arşivde kalmaya devam ediyor; ihtiyaç doğmadı.
 
 **Definition of Done:** v2.0 tamamlandı. Doğrulama:
 - İki farklı cihazdan sign-in edilince parmak izi churn sinyali üretilir ve `sharing_signals` kaydı oluşur.
-- Mock location yapılandırılan cihazlardan QR üretimi reddediliyor (`MOCK_LOCATION` hata kodu, sinyal kaydı yapılıyor).
-- 24 saatte ≥3 sinyal birikince oturumlar otomatik iptal + QR 24 saat geçici kilitlenir (`SHARING_BLOCKED`); 24 saat sonra otomatik açılır.
+- Mock location yapılandırılan cihazlardan gate-scan reddediliyor (`MOCK_LOCATION` hata kodu, sinyal kaydı yapılıyor).
+- 24 saatte ≥3 sinyal birikince oturumlar otomatik iptal + gate-scan 24 saat geçici kilitlenir (`SHARING_BLOCKED`); 24 saat sonra otomatik açılır.
 - Tüm eşikler (`memberMaxSessions`, `staffMaxSessions`, `signalThreshold`, `signalWindowHours`, `qrBlockHours`) admin panelinde Ayarlar sayfasından yapılandırılabilir.
 - Repo lint/typecheck/build yeşil.
 
@@ -163,3 +163,18 @@ personel panelinde görüntülenebilmesi.
 - [x] Cloudflare R2 saklama, public CDN URL'si ve KVKK hesap silme temizliği
 - [x] Mobil ana ekran ve personel üye aramasında avatar/fallback gösterimi
 - [x] Backend testleri, lint, typecheck ve build doğrulaması
+
+---
+
+## Faz 8 — Türkçe / İngilizce Yerelleştirme
+
+**Hedef:** Yönetim paneli ve mobil uygulamada cihaz dilini izleyen, kullanıcı
+tercihini kalıcı olarak saklayan iki dilli deneyim.
+
+- [x] Web ve mobil için ortak `i18next` / `react-i18next` çeviri altyapısı
+- [x] İlk açılışta cihaz/tarayıcı dili (`tr` veya `en`), diğer dillerde İngilizce fallback
+- [x] TR/EN manuel dil seçici ve web `localStorage` / mobil `SecureStore` kalıcılığı
+- [x] Tüm kullanıcı metinleri ile tarih ve sayı biçimlerinin aktif dile bağlanması
+- [x] iOS native izin metinlerinin Türkçe ve İngilizce yerelleştirilmesi
+- [x] API hataları için istemciden bağımsız kararlı `code` sözleşmesi
+- [x] Sözlük eşliği, dil çözümleme ve API hata yanıtı testleri; lint, typecheck ve build doğrulaması

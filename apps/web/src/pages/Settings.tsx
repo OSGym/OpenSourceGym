@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { GymSettings, SharingConfig } from "@opengym/shared";
 import { api } from "../lib/api";
+import { errorMessage } from "../i18n/errors";
 
 const defaultSharing: SharingConfig = {
   memberMaxSessions: 2,
@@ -11,6 +13,7 @@ const defaultSharing: SharingConfig = {
 };
 
 export function Settings() {
+  const { t } = useTranslation();
   const [gymName, setGymName] = useState("");
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
@@ -58,11 +61,11 @@ export function Settings() {
           sharing,
         },
       });
-      setMsg({ kind: "success", text: "Ayarlar kaydedildi." });
+      setMsg({ kind: "success", text: t("Ayarlar kaydedildi.") });
     } catch (err) {
       setMsg({
         kind: "error",
-        text: err instanceof Error ? err.message : "Kaydedilemedi.",
+        text: errorMessage(err, t, "Kaydedilemedi."),
       });
     } finally {
       setBusy(false);
@@ -71,11 +74,11 @@ export function Settings() {
 
   return (
     <div className="stagger">
-      <h1>Salon ayarları</h1>
+      <h1>{t("Salon ayarları")}</h1>
       <form className="panel" onSubmit={save} style={{ maxWidth: 560 }}>
         {msg && <div className={`msg ${msg.kind}`}>{msg.text}</div>}
         <div className="field">
-          <label htmlFor="gymName">Salon adı</label>
+          <label htmlFor="gymName">{t("Salon adı")}</label>
           <input
             id="gymName"
             value={gymName}
@@ -85,7 +88,7 @@ export function Settings() {
         </div>
         <div className="row" style={{ marginBottom: 14 }}>
           <div className="field">
-            <label htmlFor="lat">Enlem</label>
+            <label htmlFor="lat">{t("Enlem")}</label>
             <input
               id="lat"
               value={lat}
@@ -94,7 +97,7 @@ export function Settings() {
             />
           </div>
           <div className="field">
-            <label htmlFor="lng">Boylam</label>
+            <label htmlFor="lng">{t("Boylam")}</label>
             <input
               id="lng"
               value={lng}
@@ -103,7 +106,7 @@ export function Settings() {
             />
           </div>
           <div className="field">
-            <label htmlFor="radiusM">Yarıçap (m)</label>
+            <label htmlFor="radiusM">{t("Yarıçap (m)")}</label>
             <input
               id="radiusM"
               value={radiusM}
@@ -114,7 +117,7 @@ export function Settings() {
         </div>
         <div className="row" style={{ marginBottom: 14 }}>
           <div className="field" style={{ maxWidth: 180 }}>
-            <label htmlFor="capacity">Kapasite (kişi)</label>
+            <label htmlFor="capacity">{t("Kapasite (kişi)")}</label>
             <input
               id="capacity"
               value={capacity}
@@ -123,7 +126,9 @@ export function Settings() {
             />
           </div>
           <div className="field" style={{ maxWidth: 260 }}>
-            <label htmlFor="autoExitHours">Otomatik çıkış süresi (saat)</label>
+            <label htmlFor="autoExitHours">
+              {t("Otomatik çıkış süresi (saat)")}
+            </label>
             <input
               id="autoExitHours"
               type="number"
@@ -134,15 +139,15 @@ export function Settings() {
               required
             />
             <span className="hint">
-              Çıkış turnikesi yoksa üye bu süre sonunda içeride sayılmaz.
+              {t("Çıkış turnikesi yoksa üye bu süre sonunda içeride sayılmaz.")}
             </span>
           </div>
         </div>
-        <h2>Hesap paylaşımı tespiti</h2>
+        <h2>{t("Hesap paylaşımı tespiti")}</h2>
         <div className="row" style={{ marginBottom: 14 }}>
           <div className="field">
             <label htmlFor="memberMaxSessions">
-              Üye başına eşzamanlı oturum sınırı
+              {t("Üye başına eşzamanlı oturum sınırı")}
             </label>
             <input
               id="memberMaxSessions"
@@ -159,12 +164,12 @@ export function Settings() {
               required
             />
             <span className="hint">
-              Bu sınır aşıldığında en eski oturum otomatik kapatılır.
+              {t("Bu sınır aşıldığında en eski oturum otomatik kapatılır.")}
             </span>
           </div>
           <div className="field">
             <label htmlFor="staffMaxSessions">
-              Personel/admin başına eşzamanlı oturum sınırı
+              {t("Personel/admin başına eşzamanlı oturum sınırı")}
             </label>
             <input
               id="staffMaxSessions"
@@ -181,12 +186,12 @@ export function Settings() {
               required
             />
             <span className="hint">
-              Personel ve adminler için eşzamanlı oturum üst sınırı.
+              {t("Personel ve adminler için eşzamanlı oturum üst sınırı.")}
             </span>
           </div>
           <div className="field">
             <label htmlFor="signalThreshold">
-              Otomatik engel için sinyal eşiği
+              {t("Otomatik engel için sinyal eşiği")}
             </label>
             <input
               id="signalThreshold"
@@ -203,13 +208,17 @@ export function Settings() {
               required
             />
             <span className="hint">
-              Bu sayıda şüpheli sinyal birikince hesap otomatik engellenir.
+              {t(
+                "Bu sayıda şüpheli sinyal birikince hesap otomatik engellenir.",
+              )}
             </span>
           </div>
         </div>
         <div className="row" style={{ marginBottom: 14 }}>
           <div className="field">
-            <label htmlFor="signalWindowHours">Sinyal penceresi (saat)</label>
+            <label htmlFor="signalWindowHours">
+              {t("Sinyal penceresi (saat)")}
+            </label>
             <input
               id="signalWindowHours"
               type="number"
@@ -224,10 +233,12 @@ export function Settings() {
               }
               required
             />
-            <span className="hint">Sinyallerin sayıldığı zaman aralığı.</span>
+            <span className="hint">
+              {t("Sinyallerin sayıldığı zaman aralığı.")}
+            </span>
           </div>
           <div className="field">
-            <label htmlFor="qrBlockHours">QR engeli süresi (saat)</label>
+            <label htmlFor="qrBlockHours">{t("QR engeli süresi (saat)")}</label>
             <input
               id="qrBlockHours"
               type="number"
@@ -242,11 +253,13 @@ export function Settings() {
               }
               required
             />
-            <span className="hint">Otomatik engelin ne kadar süreceği.</span>
+            <span className="hint">
+              {t("Otomatik engelin ne kadar süreceği.")}
+            </span>
           </div>
         </div>
         <button type="submit" disabled={busy || !loaded}>
-          {busy ? "Kaydediliyor…" : "Kaydet"}
+          {busy ? t("Kaydediliyor…") : t("Kaydet")}
         </button>
       </form>
     </div>

@@ -1,20 +1,13 @@
 import type { Server } from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { performance } from "node:perf_hooks";
 import { ObjectId } from "mongodb";
 import { WebSocket, WebSocketServer } from "ws";
 import type {
   DeviceClientMessage,
   DeviceDirection,
   DeviceServerMessage,
-  EntryDenyReason,
 } from "@opengym/shared";
 import { db } from "./db.js";
-import { redis } from "./redis.js";
-import { QR_TOKEN_TTL_SECONDS, verifyQrToken } from "./qr.js";
-import { hasActiveSubscription } from "./subscriptions.js";
-import { enqueueEntryEvent } from "./eventQueue.js";
-import { markInside, markOutside } from "./occupancy.js";
 import { logDeviceStatus, sweepStaleOnlineStatus } from "./deviceStatus.js";
 
 const GATEWAY_PATH = "/api/device-gateway";
@@ -64,10 +57,6 @@ function unregisterDevice(id: string, ws: DeviceSocket): void {
   }
 }
 
-export function isAnyDeviceOnline(): boolean {
-  return devices.size > 0;
-}
-
 export function isDeviceOnline(id: string): boolean {
   return devices.has(id);
 }
@@ -79,6 +68,16 @@ export function disconnectDevice(id: string): void {
     devices.delete(id);
     logDeviceStatus(id, false);
   }
+}
+
+// Bağlı cihaza röle açma komutu gönderir; cihaz bağlı/açık değilse false döner
+export function openDevice(id: string, openMs: number): boolean {
+  const ws = devices.get(id);
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  send(ws, { type: "open", openMs });
+  return true;
 }
 
 // Kimlik doğrulama başarısızlığı: sebep ne olursa olsun (kötü mesaj, bilinmeyen
@@ -135,135 +134,22 @@ async function authenticate(
     send(ws, { type: "auth_ok", deviceName: ws.deviceName });
     touchLastSeen(msg.deviceId);
     logDeviceStatus(msg.deviceId, true);
-    ws.on("message", (data) => {
-      handleScan(ws, data).catch((err) => {
-        console.error("tarama işlenirken hata:", err);
-      });
+    // Cihaz artık dumb client: auth sonrası yalnızca "open" komutu dinler,
+    // kendisinden gelen mesajlar yok sayılır (eski firmware'i çökertmemek için).
+    // Eski firmware her QR okutuşunda "scan" gönderir — log seli olmasın diye
+    // bağlantı başına yalnızca bir kez uyarılır.
+    let warnedUnexpectedMessage = false;
+    ws.on("message", () => {
+      if (warnedUnexpectedMessage) return;
+      warnedUnexpectedMessage = true;
+      console.warn(
+        "cihazdan beklenmeyen mesaj (bu bağlantıda yok sayılacak):",
+        ws.deviceName,
+      );
     });
   } catch (err) {
     console.warn("cihaz kimlik doğrulaması başarısız:", err);
     failAuth(ws);
-  }
-}
-
-function isScanMessage(
-  msg: unknown,
-): msg is Extract<DeviceClientMessage, { type: "scan" }> {
-  return (
-    typeof msg === "object" &&
-    msg !== null &&
-    (msg as { type?: unknown }).type === "scan" &&
-    typeof (msg as { qr?: unknown }).qr === "string"
-  );
-}
-
-// Kimliği doğrulanmış cihazdan gelen QR tarama isteğini işler (KPI-1: uçtan uca süre ölçümü)
-async function handleScan(
-  ws: DeviceSocket,
-  raw: WebSocket.RawData,
-): Promise<void> {
-  let msg: unknown;
-  try {
-    msg = JSON.parse(raw.toString());
-  } catch {
-    console.warn("cihazdan çözümlenemeyen mesaj alındı");
-    return;
-  }
-  if (!isScanMessage(msg)) {
-    console.warn("cihazdan bilinmeyen mesaj tipi alındı:", msg);
-    return;
-  }
-
-  const start = performance.now();
-  const deviceId = ws.deviceId ?? "";
-  const deviceName = ws.deviceName ?? "";
-
-  function deny(
-    reason: EntryDenyReason,
-    userId: string | null,
-    memberName: string | null,
-    jti: string | null,
-  ): void {
-    send(ws, { type: "scan_result", allow: false, reason });
-    enqueueEntryEvent({
-      deviceId,
-      deviceName,
-      userId,
-      memberName,
-      allowed: false,
-      reason,
-      jti,
-      at: new Date(),
-    });
-  }
-
-  try {
-    const verified = verifyQrToken(msg.qr);
-    if (!verified.ok) {
-      deny(verified.reason, null, null, null);
-      return;
-    }
-    const { userId, jti } = verified;
-
-    // Tekrar oynatma (replay) koruması: bir jti yalnızca bir kez kullanılabilir
-    const replaySet = await redis.set(`og:qr-used:${jti}`, "1", {
-      NX: true,
-      EX: QR_TOKEN_TTL_SECONDS + 30,
-    });
-    if (replaySet === null) {
-      deny("REPLAY", userId, null, jti);
-      return;
-    }
-
-    if (!ObjectId.isValid(userId)) {
-      deny("INVALID_TOKEN", userId, null, jti);
-      return;
-    }
-    const user = await db
-      .collection("user")
-      .findOne({ _id: new ObjectId(userId) });
-    if (!user) {
-      deny("INVALID_TOKEN", userId, null, jti);
-      return;
-    }
-
-    const direction = ws.direction ?? "in";
-    // Çıkışta abonelik aranmaz — süresi bitmiş üye de dışarı çıkabilmeli
-    if (direction === "in" && !(await hasActiveSubscription(userId))) {
-      deny(
-        "NO_ACTIVE_SUBSCRIPTION",
-        userId,
-        (user.name as string) ?? null,
-        jti,
-      );
-      return;
-    }
-
-    const memberName = (user.name as string) ?? "";
-    send(ws, {
-      type: "scan_result",
-      allow: true,
-      memberName,
-      openMs: 500,
-    });
-    if (direction === "out") {
-      await markOutside(userId);
-    } else {
-      await markInside(userId);
-    }
-    enqueueEntryEvent({
-      deviceId,
-      deviceName,
-      userId,
-      memberName,
-      allowed: true,
-      reason: null,
-      jti,
-      at: new Date(),
-    });
-  } finally {
-    const ms = performance.now() - start;
-    console.log(`[gateway] scan işlendi (${deviceName}): ${ms.toFixed(1)}ms`);
   }
 }
 
@@ -272,7 +158,7 @@ export function attachDeviceGateway(server: Server): void {
   // durum kayıtlarını kapatır (KPI-4 uptime hesaplaması yanlış şişmesin diye)
   sweepStaleOnlineStatus();
 
-  // maxPayload: cihaz mesajları (auth/scan) 1 KB altındadır; büyük frame'lerle
+  // maxPayload: cihaz mesajı (auth) 1 KB altındadır; büyük frame'lerle
   // kimlik doğrulaması öncesi bellek tüketimini engeller
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 });
 

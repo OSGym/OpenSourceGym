@@ -4,10 +4,12 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import type { Device, DeviceCreated, DeviceDirection } from "@opengym/shared";
 import { db } from "../db.js";
+import { sendApiError } from "../apiError.js";
 import { logAudit } from "../audit.js";
 import { requireRole } from "../middleware.js";
 import { disconnectDevice, isDeviceOnline } from "../gateway.js";
 import { computeUptime24h } from "../deviceStatus.js";
+import { gateQrContent } from "../gateQr.js";
 
 export const devicesRouter: Router = Router();
 
@@ -24,7 +26,7 @@ function parseObjectId(value: string): ObjectId | null {
 devicesRouter.post("/", requireRole("admin"), async (req, res) => {
   const parsed = createDeviceSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ message: "Geçersiz cihaz adı." });
+    sendApiError(res, 400, "INVALID_DEVICE_NAME", "Geçersiz cihaz adı.");
     return;
   }
   const { name, direction } = parsed.data;
@@ -49,6 +51,7 @@ devicesRouter.post("/", requireRole("admin"), async (req, res) => {
     name,
     direction,
     token,
+    qrContent: gateQrContent(inserted.insertedId.toString()),
   };
   res.json(body);
 });
@@ -73,6 +76,7 @@ devicesRouter.get("/", requireRole("admin", "staff"), async (_req, res) => {
       lastSeenAt: d.lastSeenAt ? new Date(d.lastSeenAt).toISOString() : null,
       createdAt: d.createdAt.toISOString(),
       uptime24h: await computeUptime24h(id, online),
+      qrContent: gateQrContent(id),
     });
   }
   res.json(body);
@@ -82,12 +86,12 @@ devicesRouter.get("/", requireRole("admin", "staff"), async (_req, res) => {
 devicesRouter.delete("/:id", requireRole("admin"), async (req, res) => {
   const targetId = parseObjectId(String(req.params.id ?? ""));
   if (!targetId) {
-    res.status(404).json({ message: "Cihaz bulunamadı." });
+    sendApiError(res, 404, "DEVICE_NOT_FOUND", "Cihaz bulunamadı.");
     return;
   }
   const result = await db.collection("devices").deleteOne({ _id: targetId });
   if (result.deletedCount === 0) {
-    res.status(404).json({ message: "Cihaz bulunamadı." });
+    sendApiError(res, 404, "DEVICE_NOT_FOUND", "Cihaz bulunamadı.");
     return;
   }
   disconnectDevice(targetId.toString());

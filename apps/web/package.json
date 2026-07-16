@@ -7,21 +7,26 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
+    "test": "tsx --test src/*.test.ts src/**/*.test.ts",
     "dev": "vite"
   },
   "dependencies": {
     "@opengym/shared": "workspace:*",
     "better-auth": "^1.6.23",
+    "i18next": "^26.3.6",
     "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-i18next": "^17.0.9",
     "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
+    "@types/node": "^24.13.2",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.5.0",
+    "tsx": "^4.23.0",
     "vite": "^7.0.0"
   }
 }

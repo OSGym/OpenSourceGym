@@ -1,26 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
-  Alert,
-  Image,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
-import type {
-  MyProfile,
-  MyDeletionRequest,
-  MySubscription,
-  OccupancyResponse,
-  ProfilePhotoResponse,
-} from "@opengym/shared";
-import { ApiError, api, uploadBinary } from "../lib/api";
-import { authClient } from "../lib/auth";
-import { colors } from "../theme";
-import { Button, ErrorMsg } from "../ui";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { MySubscription, OccupancyResponse } from "@opengym/shared";
+import { api } from "../lib/api";
+import { QrGlyph } from "../components/icons";
+import { colors, radius, spacing, type } from "../theme";
+import { Button, Skeleton, StatusMessage } from "../ui";
+import { errorMessage } from "../i18n/errors";
+import { dateLocale } from "../i18n/format";
 
 export function Home({
   userName,
@@ -29,135 +23,45 @@ export function Home({
   userName: string;
   onOpenQr: () => void;
 }) {
-  const [sub, setSub] = useState<MySubscription | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [profileName, setProfileName] = useState(userName);
-  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-  const [photoBusy, setPhotoBusy] = useState(false);
-  const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
-
+  const { t, i18n } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const locale = dateLocale(i18n.resolvedLanguage);
+  const [subscription, setSubscription] = useState<MySubscription | null>(null);
   const [occupancy, setOccupancy] = useState<OccupancyResponse | null>(null);
+  const [subscriptionLoaded, setSubscriptionLoaded] = useState(false);
   const [occupancyLoaded, setOccupancyLoaded] = useState(false);
-
-  const [deletion, setDeletion] = useState<MyDeletionRequest | null>(null);
-  const [deletionError, setDeletionError] = useState<string | null>(null);
-  const [deletionBusy, setDeletionBusy] = useState(false);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(
+    null,
+  );
+  const [occupancyError, setOccupancyError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    setError(null);
-    try {
-      const profile = await api<MyProfile>("/api/me/profile");
-      setProfileName(profile.name);
-      setProfilePhotoUrl(profile.profilePhotoUrl);
-      setPhotoLoadFailed(false);
-    } catch {
-      // Profil fotoğrafı yüklenemese de abonelik ekranı çalışmaya devam eder.
-    }
-    try {
-      setSub(await api<MySubscription>("/api/me/subscription"));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Yüklenemedi.");
-    }
-
-    try {
-      setOccupancy(await api<OccupancyResponse>("/api/me/occupancy"));
-    } catch {
-      // Sessiz düş — doluluk kartı "—" gösterir, ekranı bozmaz.
-      setOccupancy(null);
-    } finally {
-      setOccupancyLoaded(true);
-    }
-
-    try {
-      setDeletion(await api<MyDeletionRequest>("/api/me/deletion-request"));
-    } catch {
-      // Sessiz düş — silme talebi bölümü varsayılan (talep yok) durumda kalır.
-    }
-  }, []);
-
-  async function chooseProfilePhoto() {
-    setPhotoError(null);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setPhotoError("Fotoğraf seçmek için galeri izni vermelisiniz.");
-      return;
-    }
-
-    const selected = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
-      allowsMultipleSelection: false,
-    });
-    if (selected.canceled || !selected.assets[0]) return;
-
-    setPhotoBusy(true);
-    try {
-      // Native modülü yalnızca fotoğraf işlenirken yükle. Böylece modülü henüz
-      // içermeyen eski development client'lar uygulama açılışında çökmez.
-      const { ImageManipulator, SaveFormat } = await import(
-        "expo-image-manipulator"
-      );
-      const context = ImageManipulator.manipulate(selected.assets[0].uri);
-      // Tek boyut ver: iki boyut vermek görseli 1024×1024'e esnetir (stretch);
-      // kare kırpma sunucudaki fit: "cover" normalizasyonuna bırakılır.
-      context.resize({ width: 1024 });
-      const rendered = await context.renderAsync();
-      const normalized = await rendered.saveAsync({
-        format: SaveFormat.JPEG,
-        compress: 0.88,
-      });
-      const response = await uploadBinary<ProfilePhotoResponse>(
-        "/api/me/profile-photo",
-        normalized.uri,
-        "image/jpeg",
-      );
-      setProfilePhotoUrl(response.profilePhotoUrl);
-      setPhotoLoadFailed(false);
-    } catch (err) {
-      setPhotoError(
-        err instanceof Error
-          ? err.message
-          : "Profil fotoğrafı yüklenemedi. Tekrar deneyin.",
-      );
-    } finally {
-      setPhotoBusy(false);
-    }
-  }
-
-  function confirmRemoveProfilePhoto() {
-    Alert.alert("Fotoğrafı kaldır", "Profil fotoğrafınız kaldırılsın mı?", [
-      { text: "Vazgeç", style: "cancel" },
-      {
-        text: "Kaldır",
-        style: "destructive",
-        onPress: () => void removeProfilePhoto(),
-      },
+    const [subscriptionResult, occupancyResult] = await Promise.allSettled([
+      api<MySubscription>("/api/me/subscription"),
+      api<OccupancyResponse>("/api/me/occupancy"),
     ]);
-  }
 
-  async function removeProfilePhoto() {
-    setPhotoBusy(true);
-    setPhotoError(null);
-    try {
-      await api<ProfilePhotoResponse>("/api/me/profile-photo", {
-        method: "DELETE",
-      });
-      setProfilePhotoUrl(null);
-      setPhotoLoadFailed(false);
-    } catch (err) {
-      setPhotoError(
-        err instanceof Error
-          ? err.message
-          : "Profil fotoğrafı kaldırılamadı. Tekrar deneyin.",
+    if (subscriptionResult.status === "fulfilled") {
+      setSubscription(subscriptionResult.value);
+      setSubscriptionError(null);
+    } else {
+      setSubscriptionError(
+        errorMessage(subscriptionResult.reason, t, "Üyelik bilgisi alınamadı."),
       );
-    } finally {
-      setPhotoBusy(false);
     }
-  }
+    setSubscriptionLoaded(true);
+
+    if (occupancyResult.status === "fulfilled") {
+      setOccupancy(occupancyResult.value);
+      setOccupancyError(null);
+    } else {
+      setOccupancyError(
+        errorMessage(occupancyResult.reason, t, "Doluluk bilgisi alınamadı."),
+      );
+    }
+    setOccupancyLoaded(true);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -169,228 +73,211 @@ export function Home({
     setRefreshing(false);
   }
 
-  function confirmDeletion() {
-    Alert.alert(
-      "Hesabı sil",
-      "Bu talep personel onayına gönderilir. Onaylanırsa hesabınız ve kişisel verileriniz kalıcı olarak silinir, bu işlem geri alınamaz.",
-      [
-        { text: "Vazgeç", style: "cancel" },
-        {
-          text: "Talep oluştur",
-          style: "destructive",
-          onPress: () => void requestDeletion(),
-        },
-      ],
-    );
-  }
-
-  async function requestDeletion() {
-    setDeletionError(null);
-    setDeletionBusy(true);
-    try {
-      await api("/api/me/deletion-request", { method: "POST" });
-      setDeletion(await api<MyDeletionRequest>("/api/me/deletion-request"));
-    } catch (err) {
-      setDeletionError(
-        err instanceof ApiError
-          ? err.message
-          : "Talep oluşturulamadı. Tekrar deneyin.",
-      );
-    } finally {
-      setDeletionBusy(false);
-    }
-  }
-
-  async function cancelDeletion() {
-    setDeletionError(null);
-    setDeletionBusy(true);
-    try {
-      await api("/api/me/deletion-request", { method: "DELETE" });
-      setDeletion(await api<MyDeletionRequest>("/api/me/deletion-request"));
-    } catch (err) {
-      setDeletionError(
-        err instanceof ApiError
-          ? err.message
-          : "Talep iptal edilemedi. Tekrar deneyin.",
-      );
-    } finally {
-      setDeletionBusy(false);
-    }
-  }
-
   const occupancyPercent =
-    occupancy?.ratio != null ? Math.round(occupancy.ratio * 100) : null;
-  const occupancyColor =
+    occupancy?.ratio != null
+      ? Math.max(0, Math.min(100, Math.round(occupancy.ratio * 100)))
+      : null;
+  const occupancyTone =
     occupancyPercent == null
-      ? colors.ink
+      ? colors.textSecondary
       : occupancyPercent > 90
-        ? colors.danger
+        ? colors.error
         : occupancyPercent >= 70
-          ? colors.accent
-          : colors.ok;
-  const initials = profileName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toLocaleUpperCase("tr-TR") ?? "")
-    .join("");
+          ? colors.warning
+          : colors.success;
+  const occupancySurface =
+    occupancyPercent == null
+      ? colors.surfaceRaised
+      : occupancyPercent > 90
+        ? colors.errorSurface
+        : occupancyPercent >= 70
+          ? colors.warningSurface
+          : colors.successSurface;
+  const occupancyLabel =
+    occupancyPercent == null
+      ? t("Bilinmiyor")
+      : occupancyPercent > 90
+        ? t("Yoğun")
+        : occupancyPercent >= 70
+          ? t("Orta yoğunluk")
+          : t("Sakin");
+  const firstName = userName.trim().split(/\s+/)[0] || t("Üye");
+  const formatDate = (value?: string | null) =>
+    value
+      ? new Date(value).toLocaleDateString(locale, {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : "—";
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={home.wrap}
+      style={home.screen}
+      contentContainerStyle={[
+        home.content,
+        { paddingTop: insets.top + spacing.lg },
+      ]}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={refresh}
-          tintColor={colors.accent}
+          tintColor={colors.textPrimary}
+          colors={[colors.textPrimary]}
+          progressBackgroundColor={colors.surfaceRaised}
         />
       }
     >
-      <View style={home.profileHeader}>
-        <View style={home.avatarFrame}>
-          {profilePhotoUrl && !photoLoadFailed ? (
-            <Image
-              source={{ uri: profilePhotoUrl }}
-              style={home.avatarImage}
-              accessibilityLabel={`${profileName} profil fotoğrafı`}
-              onError={() => setPhotoLoadFailed(true)}
-            />
-          ) : (
-            <Text style={home.avatarInitials}>{initials || "Ü"}</Text>
-          )}
-        </View>
-        <View style={home.profileCopy}>
-          <Text style={home.hello}>Merhaba,</Text>
-          <Text style={home.name}>{profileName}</Text>
-          <View style={home.photoActions}>
-            <Pressable
-              onPress={() => void chooseProfilePhoto()}
-              disabled={photoBusy}
-              hitSlop={8}
+      <View style={home.header}>
+        <Text style={home.kicker}>
+          {t("Merhaba, {{name}}", { name: firstName })}
+        </Text>
+        <Text accessibilityRole="header" style={home.title}>
+          {t("Bugün salonda")}
+        </Text>
+        <Text style={home.subtitle}>
+          {t("Doluluğu kontrol et, üyeliğini gör ve turnikeden geç.")}
+        </Text>
+      </View>
+
+      <View style={home.occupancySection}>
+        <View style={home.sectionHeadingRow}>
+          <Text style={home.sectionTitle}>{t("Salon doluluğu")}</Text>
+          {occupancyLoaded && !occupancyError ? (
+            <Text
+              style={[
+                home.badge,
+                { color: occupancyTone, backgroundColor: occupancySurface },
+              ]}
             >
-              <Text style={[home.photoAction, photoBusy && home.disabled]}>
-                {photoBusy
-                  ? "İşleniyor…"
-                  : profilePhotoUrl
-                    ? "Fotoğrafı değiştir"
-                    : "Fotoğraf ekle"}
-              </Text>
-            </Pressable>
-            {profilePhotoUrl && (
-              <Pressable
-                onPress={confirmRemoveProfilePhoto}
-                disabled={photoBusy}
-                hitSlop={8}
-              >
-                <Text style={[home.photoRemove, photoBusy && home.disabled]}>
-                  Kaldır
-                </Text>
-              </Pressable>
-            )}
-          </View>
+              {occupancyLabel}
+            </Text>
+          ) : null}
         </View>
-      </View>
 
-      <ErrorMsg text={photoError} />
-
-      <ErrorMsg text={error} />
-
-      <View
-        style={[home.card, sub?.active ? home.cardActive : home.cardInactive]}
-      >
-        <Text style={home.cardLabel}>ABONELİK</Text>
-        {sub === null && !error ? (
-          <Text style={home.big}>…</Text>
-        ) : sub?.active ? (
-          <>
-            <Text style={home.big}>{sub.remainingDays}</Text>
-            <Text style={home.unit}>gün kaldı</Text>
-            <Text style={home.detail}>
-              Bitiş: {new Date(sub.endsAt!).toLocaleDateString("tr-TR")}
-            </Text>
-          </>
-        ) : (
-          <>
-            <Text style={[home.big, { color: colors.danger }]}>—</Text>
-            <Text style={home.unit}>Aktif abonelik yok</Text>
-            <Text style={home.detail}>
-              Abonelik için salon resepsiyonuna başvurun.
-            </Text>
-          </>
-        )}
-      </View>
-
-      <Button title="QR ile giriş" onPress={onOpenQr} />
-
-      <View style={home.card}>
-        <Text style={home.cardLabel}>SALON DOLULUK</Text>
         {!occupancyLoaded ? (
-          <Text style={home.detail}>…</Text>
-        ) : occupancy ? (
-          <>
-            <Text style={home.occupancyLine}>
-              İçeride {occupancy.inside} kişi
-            </Text>
-            {occupancyPercent != null && (
-              <Text style={[home.occupancyPercent, { color: occupancyColor }]}>
-                %{occupancyPercent} doluluk
-              </Text>
-            )}
-          </>
-        ) : (
-          <Text style={home.detail}>—</Text>
-        )}
-      </View>
-
-      <Button title="Çıkış yap" ghost onPress={() => authClient.signOut()} />
-
-      <View style={home.deletionZone}>
-        <ErrorMsg text={deletionError} />
-
-        {deletion?.status === "pending" ? (
-          <View style={home.pendingBanner}>
-            <Text style={home.pendingBannerText}>
-              Hesap silme talebiniz personel onayı bekliyor.
-            </Text>
-            <Pressable
-              onPress={() => void cancelDeletion()}
-              disabled={deletionBusy}
-              hitSlop={8}
-            >
-              <Text
-                style={[
-                  home.pendingBannerAction,
-                  deletionBusy && { opacity: 0.5 },
-                ]}
-              >
-                {deletionBusy ? "İşleniyor…" : "Talebi iptal et"}
-              </Text>
-            </Pressable>
+          <View style={{ gap: spacing.md, marginTop: spacing.lg }}>
+            <Skeleton width={126} height={52} />
+            <Skeleton height={8} radius={4} />
+            <Skeleton width="58%" height={18} />
+          </View>
+        ) : occupancyError ? (
+          <View style={{ marginTop: spacing.md }}>
+            <StatusMessage
+              text={occupancyError}
+              actionLabel={t("Tekrar dene")}
+              onAction={() => void load()}
+            />
           </View>
         ) : (
           <>
-            {deletion?.status === "rejected" && (
-              <Text style={home.mutedNote}>
-                Önceki silme talebiniz reddedildi.
+            <View style={home.metricRow}>
+              <Text style={home.metric}>
+                {occupancyPercent ?? "—"}
+                {occupancyPercent == null ? null : (
+                  <Text style={home.metricUnit}>%</Text>
+                )}
               </Text>
-            )}
-            <Pressable
-              onPress={confirmDeletion}
-              disabled={deletionBusy}
-              hitSlop={8}
-              style={{ alignSelf: "center" }}
+              <Text style={home.people}>
+                {occupancy?.capacity != null
+                  ? t("{{inside}} / {{capacity}} kişi içeride", {
+                      inside: occupancy.inside,
+                      capacity: occupancy.capacity,
+                    })
+                  : t("{{inside}} kişi içeride", {
+                      inside: occupancy?.inside ?? 0,
+                    })}
+              </Text>
+            </View>
+            <View
+              accessible
+              accessibilityRole="progressbar"
+              accessibilityLabel={t("Salon doluluğu")}
+              accessibilityValue={{
+                min: 0,
+                max: 100,
+                now: occupancyPercent ?? undefined,
+                text: occupancyLabel,
+              }}
+              style={home.track}
             >
-              <Text
+              <View
                 style={[
-                  home.deleteAccountLink,
-                  deletionBusy && { opacity: 0.5 },
+                  home.fill,
+                  {
+                    width: `${occupancyPercent ?? 0}%`,
+                    backgroundColor: occupancyTone,
+                  },
                 ]}
-              >
-                {deletionBusy ? "İşleniyor…" : "Hesabımı sil"}
-              </Text>
-            </Pressable>
+              />
+            </View>
           </>
+        )}
+      </View>
+
+      <Button
+        title={t("Turnike QR kodunu tara")}
+        onPress={onOpenQr}
+        icon={<QrGlyph size={21} color={colors.onPrimary} />}
+      />
+
+      <View style={home.membershipSection}>
+        <View style={home.sectionHeadingRow}>
+          <Text style={home.sectionTitle}>{t("Üyeliğin")}</Text>
+          {subscriptionLoaded && !subscriptionError ? (
+            <Text
+              style={[
+                home.badge,
+                subscription?.active ? home.activeBadge : home.inactiveBadge,
+              ]}
+            >
+              {subscription?.active ? t("Aktif") : t("Pasif")}
+            </Text>
+          ) : null}
+        </View>
+
+        {!subscriptionLoaded ? (
+          <View style={{ gap: spacing.sm, marginTop: spacing.lg }}>
+            <Skeleton height={24} width="72%" />
+            <Skeleton height={56} />
+          </View>
+        ) : subscriptionError ? (
+          <View style={{ marginTop: spacing.md }}>
+            <StatusMessage
+              text={subscriptionError}
+              actionLabel={t("Tekrar dene")}
+              onAction={() => void load()}
+            />
+          </View>
+        ) : subscription?.active ? (
+          <>
+            <Text style={home.remaining}>
+              {t("{{count}} gün kaldı", {
+                count: subscription.remainingDays ?? 0,
+              })}
+            </Text>
+            <View style={home.dateRow}>
+              <View style={home.dateColumn}>
+                <Text style={home.dateLabel}>{t("Başlangıç")}</Text>
+                <Text style={home.dateValue}>
+                  {formatDate(subscription.startsAt)}
+                </Text>
+              </View>
+              <View style={home.divider} />
+              <View style={home.dateColumn}>
+                <Text style={home.dateLabel}>{t("Bitiş")}</Text>
+                <Text style={home.dateValue}>
+                  {formatDate(subscription.endsAt)}
+                </Text>
+              </View>
+            </View>
+          </>
+        ) : (
+          <Text style={home.emptyMembership}>
+            {t(
+              "Aktif üyeliğin bulunmuyor. Salon resepsiyonundan destek alabilirsin.",
+            )}
+          </Text>
         )}
       </View>
     </ScrollView>
@@ -398,146 +285,93 @@ export function Home({
 }
 
 const home = StyleSheet.create({
-  wrap: {
-    padding: 24,
-    paddingTop: 70,
+  screen: { flex: 1, backgroundColor: colors.background },
+  content: {
+    paddingHorizontal: spacing.gutter,
+    paddingBottom: spacing.xxl,
   },
-  hello: {
-    color: colors.inkDim,
-    fontSize: 16,
+  header: { marginBottom: spacing.xl },
+  kicker: { ...type.supporting, color: colors.textSecondary },
+  title: {
+    ...type.screenTitle,
+    color: colors.textPrimary,
+    marginTop: spacing.xxs,
   },
-  name: {
-    color: colors.ink,
-    fontSize: 30,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 6,
+  subtitle: {
+    ...type.body,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+    maxWidth: 420,
   },
-  profileHeader: {
+  occupancySection: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    padding: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  sectionHeadingRow: {
+    minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
-    marginBottom: 24,
+    justifyContent: "space-between",
+    gap: spacing.sm,
   },
-  profileCopy: {
-    flex: 1,
+  sectionTitle: { ...type.title, color: colors.textPrimary },
+  badge: {
+    ...type.label,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    overflow: "hidden",
   },
-  avatarFrame: {
-    width: 84,
-    height: 84,
-    borderWidth: 2,
-    borderColor: colors.accent,
-    backgroundColor: colors.bgRaise,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarImage: {
-    width: "100%",
-    height: "100%",
-  },
-  avatarInitials: {
-    color: colors.ink,
-    fontSize: 26,
-    fontWeight: "900",
-    letterSpacing: 1,
-  },
-  photoActions: {
+  metricRow: {
     flexDirection: "row",
-    gap: 14,
+    alignItems: "baseline",
+    gap: spacing.md,
+    marginTop: spacing.md,
   },
-  photoAction: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: "700",
-    textDecorationLine: "underline",
+  metric: { ...type.metric, color: colors.textPrimary, letterSpacing: -1 },
+  metricUnit: { fontSize: 23, lineHeight: 29, fontWeight: "600" },
+  people: { ...type.supporting, color: colors.textSecondary, flex: 1 },
+  track: {
+    height: 8,
+    backgroundColor: colors.outline,
+    borderRadius: 4,
+    overflow: "hidden",
+    marginTop: spacing.md,
   },
-  photoRemove: {
-    color: colors.inkDim,
-    fontSize: 12,
-    textDecorationLine: "underline",
+  fill: { height: "100%", borderRadius: 4 },
+  membershipSection: {
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.outline,
   },
-  disabled: {
-    opacity: 0.5,
+  activeBadge: {
+    color: colors.success,
+    backgroundColor: colors.successSurface,
   },
-  card: {
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 20,
-    marginBottom: 16,
+  inactiveBadge: { color: colors.error, backgroundColor: colors.errorSurface },
+  remaining: {
+    ...type.sectionTitle,
+    color: colors.textPrimary,
+    marginTop: spacing.lg,
   },
-  cardActive: {
-    borderTopWidth: 4,
-    borderTopColor: colors.ok,
+  dateRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    marginTop: spacing.md,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.input,
   },
-  cardInactive: {
-    borderTopWidth: 4,
-    borderTopColor: colors.danger,
-  },
-  cardLabel: {
-    color: colors.inkDim,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    marginBottom: 10,
-  },
-  big: {
-    color: colors.ink,
-    fontSize: 56,
-    fontWeight: "900",
-    lineHeight: 60,
-  },
-  unit: {
-    color: colors.ink,
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  detail: {
-    color: colors.inkDim,
-    fontSize: 13,
-  },
-  occupancyLine: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  occupancyPercent: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  deletionZone: {
-    marginTop: 28,
-  },
-  mutedNote: {
-    color: colors.inkDim,
-    fontSize: 12,
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  deleteAccountLink: {
-    color: colors.danger,
-    fontSize: 13,
-    textDecorationLine: "underline",
-  },
-  pendingBanner: {
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.lineHard,
-    padding: 14,
-    alignItems: "center",
-    gap: 8,
-  },
-  pendingBannerText: {
-    color: colors.inkDim,
-    fontSize: 13,
-    textAlign: "center",
-  },
-  pendingBannerAction: {
-    color: colors.ink,
-    fontSize: 13,
-    fontWeight: "700",
-    textDecorationLine: "underline",
+  dateColumn: { flex: 1, paddingHorizontal: spacing.md },
+  divider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.outline },
+  dateLabel: { ...type.label, color: colors.textTertiary },
+  dateValue: { ...type.supporting, color: colors.textPrimary, marginTop: 3 },
+  emptyMembership: {
+    ...type.body,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
   },
 });

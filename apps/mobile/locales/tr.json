@@ -1,0 +1,10 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Turnike QR kodunu okutmak için kamera erişimi gereklidir.",
+    "NSPhotoLibraryUsageDescription": "Profil fotoğrafı seçebilmeniz için galeri erişimi gereklidir.",
+    "NSLocationWhenInUseUsageDescription": "Konumunuz yalnızca salonda olduğunuzu doğrulamak için kullanılır."
+  },
+  "android": {
+    "app_name": "OpenGym"
+  }
+}

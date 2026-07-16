@@ -7,13 +7,17 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#101211",
+    "backgroundColor": "#060607",
+    "locales": {
+      "en": "./locales/en.json",
+      "tr": "./locales/tr.json"
+    },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#101211",
+        "backgroundColor": "#060607",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -33,7 +37,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Profil fotoğrafı seçebilmeniz için galeri erişimi gereklidir.",
+          "photosPermission": "Gallery access is required to select a profile photo.",
           "cameraPermission": false,
           "microphonePermission": false
         }
@@ -41,7 +45,25 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Konumunuz yalnızca salonda olduğunuzu doğrulamak için kullanılır."
+          "locationWhenInUsePermission": "Your location is used only to verify that you are at the gym."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Camera access is required to scan the turnstile QR code.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      "./plugins/withAndroidForceDarkDisabled",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": ["tr", "en"],
+            "android": ["tr", "en"]
+          }
         }
       ]
     ]

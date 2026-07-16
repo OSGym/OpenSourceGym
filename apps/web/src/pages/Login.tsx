@@ -1,12 +1,15 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { authApi, ApiError } from "../lib/api";
 import { useSessionUser } from "../lib/auth";
 import { AuthLayout } from "../components/AuthLayout";
+import { errorMessage } from "../i18n/errors";
 
 type Step = "password" | "code" | "forgot" | "reset";
 type Method = "totp" | "otp";
 
 export function Login() {
+  const { t } = useTranslation();
   const { refetch } = useSessionUser();
   const [step, setStep] = useState<Step>("password");
   const [method, setMethod] = useState<Method>("totp");
@@ -40,7 +43,7 @@ export function Login() {
         // Başarıda useSession güncellenir, router yönlendirir
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Giriş başarısız.");
+      setError(errorMessage(err, t, "Giriş başarısız."));
     } finally {
       setBusy(false);
     }
@@ -53,9 +56,9 @@ export function Login() {
       await authApi("/two-factor/send-otp", {});
       setMethod("otp");
       setCode("");
-      setInfo("Kod e-postanıza gönderildi.");
+      setInfo(t("Kod e-postanıza gönderildi."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kod gönderilemedi.");
+      setError(errorMessage(err, t, "Kod gönderilemedi."));
     } finally {
       setBusy(false);
     }
@@ -74,7 +77,7 @@ export function Login() {
       await refetch();
       // Başarıda useSession güncellenir, router yönlendirir
     } catch {
-      setError("Kod geçersiz veya süresi dolmuş.");
+      setError(t("Kod geçersiz veya süresi dolmuş."));
     } finally {
       setBusy(false);
     }
@@ -111,9 +114,9 @@ export function Login() {
 
   function forgotErrorMessage(err: unknown): string {
     if (err instanceof ApiError && err.status === 429) {
-      return "Çok fazla deneme. Lütfen bir dakika bekleyin.";
+      return t("Çok fazla deneme. Lütfen bir dakika bekleyin.");
     }
-    return "İstek gönderilemedi. Lütfen tekrar deneyin.";
+    return t("İstek gönderilemedi. Lütfen tekrar deneyin.");
   }
 
   async function requestResetCode() {
@@ -126,7 +129,7 @@ export function Login() {
     setError(null);
     try {
       await requestResetCode();
-      setInfo("Şifre sıfırlama kodu e-postanıza gönderildi.");
+      setInfo(t("Şifre sıfırlama kodu e-postanıza gönderildi."));
       setStep("reset");
     } catch (err) {
       setError(forgotErrorMessage(err));
@@ -142,7 +145,7 @@ export function Login() {
     try {
       await requestResetCode();
       setResetOtp("");
-      setInfo("Yeni kod e-postanıza gönderildi.");
+      setInfo(t("Yeni kod e-postanıza gönderildi."));
     } catch (err) {
       setError(forgotErrorMessage(err));
     } finally {
@@ -155,11 +158,11 @@ export function Login() {
     setError(null);
     setInfo(null);
     if (newPassword.length < 8) {
-      setError("Şifre en az 8 karakter olmalı.");
+      setError(t("Şifre en az 8 karakter olmalı."));
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError("Şifreler eşleşmiyor.");
+      setError(t("Şifreler eşleşmiyor."));
       return;
     }
     setBusy(true);
@@ -175,24 +178,24 @@ export function Login() {
       setNewPassword("");
       setConfirmPassword("");
       setError(null);
-      setInfo("Şifreniz güncellendi. Lütfen giriş yapın.");
+      setInfo(t("Şifreniz güncellendi. Lütfen giriş yapın."));
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 429) {
-          setError("Çok fazla deneme. Lütfen bir dakika bekleyin.");
+          setError(t("Çok fazla deneme. Lütfen bir dakika bekleyin."));
         } else if (err.code === "INVALID_OTP") {
-          setError("Kod geçersiz.");
+          setError(t("Kod geçersiz."));
         } else if (err.code === "OTP_EXPIRED") {
-          setError("Kodun süresi doldu.");
+          setError(t("Kodun süresi doldu."));
         } else if (err.code === "TOO_MANY_ATTEMPTS") {
-          setError("Çok fazla hatalı deneme yapıldı. Yeni kod isteyin.");
+          setError(t("Çok fazla hatalı deneme yapıldı. Yeni kod isteyin."));
         } else if (err.code === "PASSWORD_TOO_SHORT") {
-          setError("Şifre çok kısa.");
+          setError(t("Şifre çok kısa."));
         } else {
-          setError("Şifre sıfırlama başarısız.");
+          setError(t("Şifre sıfırlama başarısız."));
         }
       } else {
-        setError("Şifre sıfırlama başarısız.");
+        setError(t("Şifre sıfırlama başarısız."));
       }
     } finally {
       setBusy(false);
@@ -207,11 +210,11 @@ export function Login() {
             Open
             <em style={{ color: "var(--accent)", fontStyle: "normal" }}>Gym</em>
           </h1>
-          <p className="sub">Şifre sıfırlama</p>
+          <p className="sub">{t("Şifre sıfırlama")}</p>
           {error && <div className="msg error">{error}</div>}
           {info && <div className="msg success">{info}</div>}
           <div className="field">
-            <label htmlFor="forgot-email">E-posta</label>
+            <label htmlFor="forgot-email">{t("E-posta")}</label>
             <input
               id="forgot-email"
               type="email"
@@ -223,7 +226,7 @@ export function Login() {
             />
           </div>
           <button type="submit" disabled={busy} style={{ width: "100%" }}>
-            {busy ? "Gönderiliyor…" : "Sıfırlama kodu gönder"}
+            {busy ? t("Gönderiliyor…") : t("Sıfırlama kodu gönder")}
           </button>
           <div className="row" style={{ marginTop: 16 }}>
             <button
@@ -232,7 +235,7 @@ export function Login() {
               onClick={backToPasswordFromForgot}
               disabled={busy}
             >
-              Geri
+              {t("Geri")}
             </button>
           </div>
         </form>
@@ -248,11 +251,11 @@ export function Login() {
             Open
             <em style={{ color: "var(--accent)", fontStyle: "normal" }}>Gym</em>
           </h1>
-          <p className="sub">Yeni şifre belirleyin</p>
+          <p className="sub">{t("Yeni şifre belirleyin")}</p>
           {error && <div className="msg error">{error}</div>}
           {info && <div className="msg success">{info}</div>}
           <div className="field">
-            <label htmlFor="reset-email">E-posta</label>
+            <label htmlFor="reset-email">{t("E-posta")}</label>
             <input
               id="reset-email"
               type="email"
@@ -263,7 +266,7 @@ export function Login() {
             />
           </div>
           <div className="field">
-            <label htmlFor="reset-otp">Doğrulama kodu</label>
+            <label htmlFor="reset-otp">{t("Doğrulama kodu")}</label>
             <input
               id="reset-otp"
               value={resetOtp}
@@ -275,7 +278,7 @@ export function Login() {
             />
           </div>
           <div className="field">
-            <label htmlFor="new-password">Yeni şifre</label>
+            <label htmlFor="new-password">{t("Yeni şifre")}</label>
             <input
               id="new-password"
               type="password"
@@ -286,7 +289,7 @@ export function Login() {
             />
           </div>
           <div className="field">
-            <label htmlFor="confirm-password">Yeni şifre (tekrar)</label>
+            <label htmlFor="confirm-password">{t("Yeni şifre (tekrar)")}</label>
             <input
               id="confirm-password"
               type="password"
@@ -297,7 +300,7 @@ export function Login() {
             />
           </div>
           <button type="submit" disabled={busy} style={{ width: "100%" }}>
-            {busy ? "Güncelleniyor…" : "Şifreyi güncelle"}
+            {busy ? t("Güncelleniyor…") : t("Şifreyi güncelle")}
           </button>
           <div
             className="row"
@@ -309,7 +312,7 @@ export function Login() {
               onClick={backToPasswordFromReset}
               disabled={busy}
             >
-              Geri
+              {t("Geri")}
             </button>
             <button
               type="button"
@@ -317,7 +320,7 @@ export function Login() {
               onClick={() => void resendResetCode()}
               disabled={busy}
             >
-              Kodu tekrar gönder
+              {t("Kodu tekrar gönder")}
             </button>
           </div>
         </form>
@@ -333,11 +336,11 @@ export function Login() {
             Open
             <em style={{ color: "var(--accent)", fontStyle: "normal" }}>Gym</em>
           </h1>
-          <p className="sub">İki aşamalı doğrulama</p>
+          <p className="sub">{t("İki aşamalı doğrulama")}</p>
           {error && <div className="msg error">{error}</div>}
           {info && <div className="msg success">{info}</div>}
           <div className="field">
-            <label htmlFor="code">Doğrulama kodu</label>
+            <label htmlFor="code">{t("Doğrulama kodu")}</label>
             <input
               id="code"
               value={code}
@@ -348,7 +351,7 @@ export function Login() {
             />
           </div>
           <button type="submit" disabled={busy} style={{ width: "100%" }}>
-            {busy ? "Doğrulanıyor…" : "Doğrula"}
+            {busy ? t("Doğrulanıyor…") : t("Doğrula")}
           </button>
           <div
             className="row"
@@ -360,7 +363,7 @@ export function Login() {
               onClick={backToPassword}
               disabled={busy}
             >
-              Geri
+              {t("Geri")}
             </button>
             {method === "totp" && (
               <button
@@ -369,7 +372,7 @@ export function Login() {
                 onClick={() => void sendEmailCode()}
                 disabled={busy}
               >
-                E-posta ile kod gönder
+                {t("E-posta ile kod gönder")}
               </button>
             )}
           </div>
@@ -385,11 +388,11 @@ export function Login() {
           Open
           <em style={{ color: "var(--accent)", fontStyle: "normal" }}>Gym</em>
         </h1>
-        <p className="sub">Yönetim paneli — personel girişi</p>
+        <p className="sub">{t("Yönetim paneli — personel girişi")}</p>
         {error && <div className="msg error">{error}</div>}
         {info && <div className="msg success">{info}</div>}
         <div className="field">
-          <label htmlFor="email">E-posta</label>
+          <label htmlFor="email">{t("E-posta")}</label>
           <input
             id="email"
             type="email"
@@ -400,7 +403,7 @@ export function Login() {
           />
         </div>
         <div className="field">
-          <label htmlFor="password">Şifre</label>
+          <label htmlFor="password">{t("Şifre")}</label>
           <input
             id="password"
             type="password"
@@ -411,7 +414,7 @@ export function Login() {
           />
         </div>
         <button type="submit" disabled={busy} style={{ width: "100%" }}>
-          {busy ? "Giriş yapılıyor…" : "Giriş yap"}
+          {busy ? t("Giriş yapılıyor…") : t("Giriş yap")}
         </button>
         <div
           className="row"
@@ -423,7 +426,7 @@ export function Login() {
             onClick={goToForgot}
             disabled={busy}
           >
-            Şifremi unuttum?
+            {t("Şifremi unuttum?")}
           </button>
         </div>
       </form>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import QRCode from "qrcode";
 import { authApi } from "../lib/api";
 import { useProfile } from "../lib/profile";
@@ -9,6 +10,7 @@ interface MfaSetup {
 }
 
 export function Security() {
+  const { t } = useTranslation();
   const { profile, refresh } = useProfile();
   const [password, setPassword] = useState("");
   const [disablePassword, setDisablePassword] = useState("");
@@ -32,7 +34,7 @@ export function Security() {
       setPassword("");
       setCopied(false);
     } catch {
-      setMsg({ kind: "error", text: "Şifre hatalı." });
+      setMsg({ kind: "error", text: t("Şifre hatalı.") });
     } finally {
       setBusy(false);
     }
@@ -46,10 +48,13 @@ export function Security() {
       await authApi("/two-factor/verify-totp", { code });
       setSetup(null);
       setCode("");
-      setMsg({ kind: "success", text: "MFA etkinleştirildi." });
+      setMsg({ kind: "success", text: t("MFA etkinleştirildi.") });
       await refresh();
     } catch {
-      setMsg({ kind: "error", text: "Kod geçersiz veya süresi dolmuş." });
+      setMsg({
+        kind: "error",
+        text: t("Kod geçersiz veya süresi dolmuş."),
+      });
     } finally {
       setBusy(false);
     }
@@ -62,10 +67,10 @@ export function Security() {
     try {
       await authApi("/two-factor/disable", { password: disablePassword });
       setDisablePassword("");
-      setMsg({ kind: "success", text: "MFA devre dışı bırakıldı." });
+      setMsg({ kind: "success", text: t("MFA devre dışı bırakıldı.") });
       await refresh();
     } catch {
-      setMsg({ kind: "error", text: "Şifre hatalı." });
+      setMsg({ kind: "error", text: t("Şifre hatalı.") });
     } finally {
       setBusy(false);
     }
@@ -83,14 +88,14 @@ export function Security() {
 
   return (
     <div className="stagger">
-      <h1>Güvenlik</h1>
+      <h1>{t("Güvenlik")}</h1>
       <div className="panel" style={{ maxWidth: 560 }}>
-        <h2>İki aşamalı doğrulama (MFA)</h2>
+        <h2>{t("İki aşamalı doğrulama (MFA)")}</h2>
         <p style={{ marginBottom: 16 }}>
           {profile?.twoFactorEnabled ? (
-            <span className="badge ok">MFA etkin</span>
+            <span className="badge ok">{t("MFA etkin")}</span>
           ) : (
-            <span className="badge member">MFA kapalı</span>
+            <span className="badge member">{t("MFA kapalı")}</span>
           )}
         </p>
         {msg && <div className={`msg ${msg.kind}`}>{msg.text}</div>}
@@ -98,7 +103,7 @@ export function Security() {
         {!profile?.twoFactorEnabled && !setup && (
           <form className="row" onSubmit={enable}>
             <div className="field">
-              <label htmlFor="enablePassword">Şifre</label>
+              <label htmlFor="enablePassword">{t("Şifre")}</label>
               <input
                 id="enablePassword"
                 type="password"
@@ -109,7 +114,7 @@ export function Security() {
               />
             </div>
             <button type="submit" disabled={busy}>
-              {busy ? "İşleniyor…" : "MFA'yı etkinleştir"}
+              {busy ? t("İşleniyor…") : t("MFA'yı etkinleştir")}
             </button>
           </form>
         )}
@@ -117,13 +122,14 @@ export function Security() {
         {setup && (
           <div>
             <div className="qr-box">
-              <img src={setup.qr} alt="MFA QR kodu" />
+              <img src={setup.qr} alt={t("MFA QR kodu")} />
             </div>
             <p className="hint" style={{ marginBottom: 16 }}>
-              Authenticator uygulamanızla (Google Authenticator, Authy vb.)
-              yukarıdaki QR kodu okutun.
+              {t(
+                "Authenticator uygulamanızla (Google Authenticator, Authy vb.) yukarıdaki QR kodu okutun.",
+              )}
             </p>
-            <h3 style={{ marginBottom: 8 }}>Yedek kodlar</h3>
+            <h3 style={{ marginBottom: 8 }}>{t("Yedek kodlar")}</h3>
             <div className="code-block">{setup.backupCodes.join("\n")}</div>
             <div className="row" style={{ marginBottom: 14 }}>
               <button
@@ -131,16 +137,17 @@ export function Security() {
                 className="ghost"
                 onClick={() => void copyBackupCodes()}
               >
-                {copied ? "Kopyalandı" : "Kopyala"}
+                {copied ? t("Kopyalandı") : t("Kopyala")}
               </button>
             </div>
             <div className="msg warn">
-              Yedek kodlar yalnızca şimdi görüntülenir; güvenli bir yere
-              kaydedin.
+              {t(
+                "Yedek kodlar yalnızca şimdi görüntülenir; güvenli bir yere kaydedin.",
+              )}
             </div>
             <form onSubmit={verify} className="row" style={{ marginTop: 6 }}>
               <div className="field">
-                <label htmlFor="totpCode">Doğrulama kodu</label>
+                <label htmlFor="totpCode">{t("Doğrulama kodu")}</label>
                 <input
                   id="totpCode"
                   value={code}
@@ -150,7 +157,7 @@ export function Security() {
                 />
               </div>
               <button type="submit" disabled={busy}>
-                {busy ? "Doğrulanıyor…" : "Doğrula"}
+                {busy ? t("Doğrulanıyor…") : t("Doğrula")}
               </button>
             </form>
           </div>
@@ -159,7 +166,7 @@ export function Security() {
         {profile?.twoFactorEnabled && (
           <form className="row" onSubmit={disable}>
             <div className="field">
-              <label htmlFor="disablePassword">Şifre</label>
+              <label htmlFor="disablePassword">{t("Şifre")}</label>
               <input
                 id="disablePassword"
                 type="password"
@@ -170,7 +177,7 @@ export function Security() {
               />
             </div>
             <button type="submit" className="ghost" disabled={busy}>
-              {busy ? "İşleniyor…" : "MFA'yı devre dışı bırak"}
+              {busy ? t("İşleniyor…") : t("MFA'yı devre dışı bırak")}
             </button>
           </form>
         )}

@@ -1,6 +1,6 @@
 # OpenGym
 
-Self-hosted, single-tenant gym automation: member self-registration, subscription tracking, QR turnstile entry (planned), staff/role management. Product docs are Turkish: `PRD.md` (requirements and non-goals) and `ROADMAP.md` (phase checklists). Current state: Faz 0–3 (MVP: infra, auth, admin panel, mobile app) complete; Faz 4 (turnstile QR + WebSocket device gateway) is next.
+Self-hosted, single-tenant gym automation: member self-registration, subscription tracking, QR turnstile entry (static QR on turnstile, mobile-scanned), staff/role management. Product docs are Turkish: `PRD.md` (requirements and non-goals) and `ROADMAP.md` (phase checklists). Current state: Faz 0–5 (MVP + v1.1: infra, auth, admin panel, mobile app, QR turnstile, MFA, occupancy) complete; Faz 6 (account sharing detection, anti-debugging) complete.
 
 **Non-goals** (from PRD): online payments, multi-tenant/multi-branch, class booking/training/diet features. PRD "Ek A" (experimental path-obfuscation/custom cipher layer) is archived — never implement it.
 

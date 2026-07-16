@@ -2,17 +2,17 @@
 // OpenGym turnike simülatörü — Node >= 22 (global WebSocket), sıfır bağımlılık.
 //
 // Kullanım:
-//   DEVICE_ID=... DEVICE_TOKEN=og_... node agent.mjs                 # etkileşimli: her satır bir QR taraması
-//   DEVICE_ID=... DEVICE_TOKEN=og_... node agent.mjs --scan "<qr>"   # tek atış: tara, sonucu yaz, çık
+//   DEVICE_ID=... DEVICE_TOKEN=og_... node agent.mjs
+//
+// Cihaz artık "dumb client": kimlik doğrular, bağlı kalır ve sunucudan gelen
+// "open" komutunu bekler (üye taraması artık cihazda değil, telefon
+// uygulamasında gerçekleşir). Bu ajan yalnızca bağlantı/röle simülasyonudur.
 //
 // Ortam değişkenleri:
 //   GATEWAY_URL   varsayılan: ws://127.0.0.1:3000/api/device-gateway
 //   DEVICE_ID     panelden eklenen cihazın id'si
 //   DEVICE_TOKEN  cihaz eklenirken yalnızca bir kez gösterilen "og_" önekli token
-//
-// Çıkış kodları (--scan modu): 0 = izin verildi, 1 = reddedildi, 2 = hata/bağlantı sorunu
 
-import readline from "node:readline";
 import process from "node:process";
 
 const GATEWAY_URL =
@@ -25,30 +25,10 @@ if (!DEVICE_ID || !DEVICE_TOKEN) {
   process.exit(2);
 }
 
-const scanArgIndex = process.argv.indexOf("--scan");
-const oneShotQr = scanArgIndex !== -1 ? process.argv[scanArgIndex + 1] : null;
-if (scanArgIndex !== -1 && !oneShotQr) {
-  console.error('Kullanım: node agent.mjs --scan "<qr>"');
-  process.exit(2);
-}
-
-let socket = null;
-let authed = false;
 let reconnectDelayMs = 1000;
-let scanStartedAt = null;
-
-// Tek atış modunda takılı kalmamak için genel zaman aşımı
-if (oneShotQr) {
-  setTimeout(() => {
-    console.error("[zaman aşımı] 10 sn içinde sonuç alınamadı.");
-    process.exit(2);
-  }, 10_000).unref?.();
-}
 
 function connect() {
   const ws = new WebSocket(GATEWAY_URL);
-  socket = ws;
-  authed = false;
 
   ws.addEventListener("open", () => {
     ws.send(
@@ -65,15 +45,8 @@ function connect() {
     }
 
     if (msg.type === "auth_ok") {
-      authed = true;
       reconnectDelayMs = 1000;
-      console.log(`[bağlı] cihaz: ${msg.deviceName}`);
-      if (oneShotQr) {
-        scanStartedAt = performance.now();
-        ws.send(JSON.stringify({ type: "scan", qr: oneShotQr }));
-      } else {
-        console.log("QR içeriğini yapıştırıp Enter'a basın (Ctrl+C ile çıkış):");
-      }
+      console.log(`[bağlı] cihaz: ${msg.deviceName} — açılma komutu bekleniyor…`);
       return;
     }
 
@@ -83,32 +56,12 @@ function connect() {
       process.exit(2);
     }
 
-    if (msg.type === "scan_result") {
-      const ms =
-        scanStartedAt !== null
-          ? (performance.now() - scanStartedAt).toFixed(0)
-          : "?";
-      scanStartedAt = null;
-      if (msg.allow) {
-        console.log(
-          `AÇIK  üye: ${msg.memberName ?? "?"}  (${ms} ms) — röle ${msg.openMs ?? 500} ms tetiklendi`,
-        );
-        if (oneShotQr) process.exit(0);
-      } else {
-        console.log(
-          `RED   neden: ${msg.reason ?? "?"}  (${ms} ms) — röle kapalı (fail-closed)`,
-        );
-        if (oneShotQr) process.exit(1);
-      }
+    if (msg.type === "open") {
+      console.log(`AÇIK — röle ${msg.openMs ?? 500} ms tetiklendi`);
     }
   });
 
   ws.addEventListener("close", () => {
-    authed = false;
-    if (oneShotQr) {
-      console.error("[koptu] sonuç alınamadan bağlantı kapandı.");
-      process.exit(2);
-    }
     console.log(
       `[koptu] ${Math.round(reconnectDelayMs / 1000)} sn sonra yeniden bağlanılacak...`,
     );
@@ -121,17 +74,3 @@ function connect() {
 }
 
 connect();
-
-if (!oneShotQr) {
-  const rl = readline.createInterface({ input: process.stdin });
-  rl.on("line", (line) => {
-    const qr = line.trim();
-    if (!qr) return;
-    if (!socket || socket.readyState !== WebSocket.OPEN || !authed) {
-      console.log("RED   sunucu bağlı değil (fail-closed)");
-      return;
-    }
-    scanStartedAt = performance.now();
-    socket.send(JSON.stringify({ type: "scan", qr }));
-  });
-}

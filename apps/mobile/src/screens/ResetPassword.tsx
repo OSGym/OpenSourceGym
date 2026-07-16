@@ -1,8 +1,18 @@
-import { useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { authClient } from "../lib/auth";
-import { Button, ErrorMsg, Field, styles } from "../ui";
-import { colors } from "../theme";
+import { OtpInput } from "../components/OtpInput";
+import {
+  AuthShell,
+  Button,
+  ErrorMsg,
+  Field,
+  InfoMsg,
+  LogoMark,
+  PasswordField,
+  styles,
+} from "../ui";
 
 export function ResetPassword({
   email,
@@ -13,6 +23,7 @@ export function ResetPassword({
   onDone: () => void;
   onBack: () => void;
 }) {
+  const { t } = useTranslation();
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -20,20 +31,30 @@ export function ResetPassword({
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const confirmRef = useRef<TextInput>(null);
 
   async function submit() {
     setError(null);
     setInfo(null);
+    setOtpError(null);
+    setPasswordError(null);
+    setConfirmError(null);
     if (otp.length !== 6) {
-      setError("6 haneli doğrulama kodunu girin.");
+      setOtpError(t("6 haneli doğrulama kodunu girin."));
       return;
     }
     if (password.length < 8) {
-      setError("Şifre en az 8 karakter olmalı.");
+      setPasswordError(t("Şifre en az 8 karakter olmalı."));
+      passwordRef.current?.focus();
       return;
     }
     if (password !== confirm) {
-      setError("Şifreler eşleşmiyor.");
+      setConfirmError(t("Şifreler eşleşmiyor."));
+      confirmRef.current?.focus();
       return;
     }
     setBusy(true);
@@ -45,21 +66,21 @@ export function ResetPassword({
     setBusy(false);
     if (error) {
       if (error.status === 429) {
-        setError("Çok fazla deneme. Lütfen bir dakika bekleyin.");
+        setError(t("Çok fazla deneme. Lütfen bir dakika bekleyin."));
       } else if (error.code === "INVALID_OTP") {
-        setError("Kod hatalı.");
+        setError(t("Kod hatalı."));
       } else if (error.code === "OTP_EXPIRED") {
-        setError("Kodun süresi dolmuş.");
+        setError(t("Kodun süresi dolmuş."));
       } else if (error.code === "TOO_MANY_ATTEMPTS") {
-        setError("Çok fazla hatalı deneme yapıldı. Yeni kod isteyin.");
+        setError(t("Çok fazla hatalı deneme yapıldı. Yeni kod isteyin."));
       } else if (error.code === "PASSWORD_TOO_SHORT") {
-        setError("Şifre en az 8 karakter olmalı.");
+        setError(t("Şifre en az 8 karakter olmalı."));
       } else {
-        setError("Şifre sıfırlanamadı. Lütfen tekrar deneyin.");
+        setError(t("Şifre sıfırlanamadı. Lütfen tekrar deneyin."));
       }
       return;
     }
-    Alert.alert("Şifreniz güncellendi", "Yeni şifrenizle giriş yapın.");
+    Alert.alert(t("Şifreniz güncellendi"), t("Yeni şifrenizle giriş yapın."));
     onDone();
   }
 
@@ -74,60 +95,85 @@ export function ResetPassword({
     if (error) {
       setError(
         error.status === 429
-          ? "Çok fazla deneme. Lütfen bir dakika bekleyin."
-          : "İstek gönderilemedi. Lütfen tekrar deneyin.",
+          ? t("Çok fazla deneme. Lütfen bir dakika bekleyin.")
+          : t("İstek gönderilemedi. Lütfen tekrar deneyin."),
       );
       return;
     }
     setOtp("");
-    setInfo("Yeni kod gönderildi.");
+    setInfo(t("Yeni kod gönderildi."));
   }
 
   return (
-    <View style={styles.screen}>
-      <Text style={styles.brand}>
-        Open<Text style={styles.brandAccent}>Gym</Text>
-      </Text>
+    <AuthShell
+      footer={
+        <Pressable accessibilityRole="button" onPress={onBack}>
+          <Text style={styles.link}>{t("Giriş ekranına dön")}</Text>
+        </Pressable>
+      }
+    >
+      <LogoMark />
+      <Text style={styles.heading}>{t("Yeni şifre oluştur")}</Text>
       <Text style={styles.sub}>
-        {email} adresine gönderilen kodu ve yeni şifrenizi girin.
+        {t("{{email}} adresine gönderilen kodu ve yeni şifrenizi girin.", {
+          email,
+        })}
       </Text>
-      <ErrorMsg text={error} />
-      {info && (
-        <Text style={{ color: colors.ok, marginBottom: 14, fontSize: 13 }}>
-          {info}
-        </Text>
-      )}
-      <Field label="E-posta" value={email} editable={false} />
-      <Field
-        label="Doğrulama kodu"
-        value={otp}
-        onChangeText={setOtp}
-        keyboardType="number-pad"
-        maxLength={6}
-      />
-      <Field
-        label="Yeni şifre (min. 8 karakter)"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        autoComplete="new-password"
-      />
-      <Field
-        label="Yeni şifre (tekrar)"
-        value={confirm}
-        onChangeText={setConfirm}
-        secureTextEntry
-        autoComplete="new-password"
-      />
-      <Button title="Şifreyi sıfırla" onPress={submit} busy={busy} />
-      <Pressable onPress={() => void resend()} disabled={resending}>
+
+      <View style={{ marginTop: 24 }}>
+        <ErrorMsg text={error} />
+        <InfoMsg text={info} />
+      </View>
+
+      <View style={{ marginTop: error || info ? 0 : 8, gap: 16 }}>
+        <Field label={t("E-posta")} value={email} editable={false} />
+        <OtpInput
+          value={otp}
+          error={otpError}
+          onChangeText={(value) => {
+            setOtp(value);
+            if (otpError) setOtpError(null);
+          }}
+        />
+        <PasswordField
+          inputRef={passwordRef}
+          label={t("Yeni şifre (min. 8 karakter)")}
+          value={password}
+          error={passwordError}
+          helperText={t("En az 8 karakter kullanın.")}
+          onChangeText={(value) => {
+            setPassword(value);
+            if (passwordError) setPasswordError(null);
+          }}
+          autoComplete="new-password"
+          returnKeyType="next"
+          onSubmitEditing={() => confirmRef.current?.focus()}
+        />
+        <PasswordField
+          inputRef={confirmRef}
+          label={t("Yeni şifre (tekrar)")}
+          value={confirm}
+          error={confirmError}
+          onChangeText={(value) => {
+            setConfirm(value);
+            if (confirmError) setConfirmError(null);
+          }}
+          autoComplete="new-password"
+          returnKeyType="done"
+          onSubmitEditing={() => void submit()}
+        />
+      </View>
+
+      <Button title={t("Şifreyi sıfırla")} onPress={submit} busy={busy} />
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => void resend()}
+        disabled={resending}
+      >
         <Text style={styles.link}>
-          {resending ? "Kod gönderiliyor..." : "Kodu tekrar gönder"}
+          {resending ? t("Kod gönderiliyor...") : t("Kodu tekrar gönder")}
         </Text>
       </Pressable>
-      <Pressable onPress={onBack}>
-        <Text style={styles.link}>Giriş ekranına dön</Text>
-      </Pressable>
-    </View>
+    </AuthShell>
   );
 }

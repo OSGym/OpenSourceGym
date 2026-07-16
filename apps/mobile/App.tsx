@@ -1,57 +1,158 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Animated,
+  AppState,
+  Text,
+  View,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { useTranslation } from "react-i18next";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { authClient } from "./src/lib/auth";
 import {
   checkDeviceIntegrity,
   type DeviceIntegrityResult,
 } from "./src/lib/deviceIntegrity";
-import { colors } from "./src/theme";
-import { Button, styles } from "./src/ui";
+import { colors, motion, spacing, type } from "./src/theme";
+import {
+  Button,
+  LogoMark,
+  Screen,
+  StatusMessage,
+  useReducedMotion,
+} from "./src/ui";
 import { Login } from "./src/screens/Login";
 import { Register } from "./src/screens/Register";
 import { VerifyOtp } from "./src/screens/VerifyOtp";
 import { ForgotPassword } from "./src/screens/ForgotPassword";
 import { ResetPassword } from "./src/screens/ResetPassword";
 import { Home } from "./src/screens/Home";
-import { QrEntry } from "./src/screens/QrEntry";
+import { GateScan } from "./src/screens/GateScan";
+import { Profile } from "./src/screens/Profile";
+import { BottomTabBar, type AppTab } from "./src/components/BottomTabBar";
+import { LanguageSwitcher } from "./src/i18n/LanguageSwitcher";
+import { initializeLocalization, syncDeviceLanguage } from "./src/i18n";
 
-type Screen =
+type ScreenState =
   | { name: "login" }
   | { name: "register" }
   | { name: "verify"; email: string; password: string }
   | { name: "forgot" }
   | { name: "reset"; email: string };
 
-type HomeSubScreen = "home" | "qr";
+function DeviceBlocked({ onHome }: { onHome: () => void }) {
+  const { t } = useTranslation();
 
-function DeviceBlocked({ onBack }: { onBack: () => void }) {
   return (
-    <View style={styles.screen}>
-      <Text style={styles.brand}>
-        Open<Text style={styles.brandAccent}>Gym</Text>
+    <Screen style={{ justifyContent: "center" }}>
+      <LogoMark />
+      <Text
+        style={{
+          ...type.sectionTitle,
+          color: colors.textPrimary,
+          marginTop: spacing.xl,
+        }}
+      >
+        {t("Bu cihazda QR kullanılamıyor")}
       </Text>
-      <Text style={styles.error}>
-        Cihazınızda güvenlik riski tespit edildi (root/jailbreak veya hata
-        ayıklama). Güvenlik nedeniyle QR ile giriş bu cihazda kullanılamaz.
+      <Text
+        style={{
+          ...type.body,
+          color: colors.textSecondary,
+          marginTop: spacing.sm,
+        }}
+      >
+        {t(
+          "Cihazınızda güvenlik riski tespit edildi (root/jailbreak veya hata ayıklama). Güvenlik nedeniyle QR ile giriş bu cihazda kullanılamaz.",
+        )}
       </Text>
-      <Button title="Geri" ghost onPress={onBack} />
+      <StatusMessage
+        tone="warning"
+        text={t("Yardım için salon resepsiyonuna başvurun.")}
+      />
+      <View style={{ marginTop: spacing.xl }}>
+        <Button title={t("Ana sayfaya dön")} onPress={onHome} />
+      </View>
+    </Screen>
+  );
+}
+
+function SignedInApp({
+  userName,
+  integrity,
+}: {
+  userName: string;
+  integrity: DeviceIntegrityResult | null;
+}) {
+  const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const [profileVisited, setProfileVisited] = useState(false);
+  const reducedMotion = useReducedMotion();
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (activeTab === "profile") setProfileVisited(true);
+    if (reducedMotion) {
+      opacity.setValue(1);
+      return;
+    }
+    opacity.setValue(0.72);
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: motion.standard,
+      useNativeDriver: true,
+    }).start();
+  }, [activeTab, opacity, reducedMotion]);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <Animated.View style={{ flex: 1, opacity }}>
+        <View style={activeTab === "home" ? styles.visible : styles.hidden}>
+          <Home userName={userName} onOpenQr={() => setActiveTab("scan")} />
+        </View>
+        {activeTab === "scan" ? (
+          integrity === null ? (
+            <View style={styles.loading}>
+              <ActivityIndicator color={colors.textPrimary} size="large" />
+            </View>
+          ) : integrity.compromised ? (
+            <DeviceBlocked onHome={() => setActiveTab("home")} />
+          ) : (
+            <GateScan />
+          )
+        ) : null}
+        {profileVisited ? (
+          <View
+            style={activeTab === "profile" ? styles.visible : styles.hidden}
+          >
+            <Profile fallbackName={userName} />
+          </View>
+        ) : null}
+      </Animated.View>
+      <BottomTabBar activeTab={activeTab} onTabChange={setActiveTab} />
     </View>
   );
 }
 
-export default function App() {
+function AppContent() {
   const { data: session, isPending } = authClient.useSession();
-  const [screen, setScreen] = useState<Screen>({ name: "login" });
-  const [homeScreen, setHomeScreen] = useState<HomeSubScreen>("home");
+  const [localizationReady, setLocalizationReady] = useState(false);
+  const [screen, setScreen] = useState<ScreenState>({ name: "login" });
   const [integrity, setIntegrity] = useState<DeviceIntegrityResult | null>(
     null,
   );
   const hadSession = useRef(false);
 
+  useEffect(() => {
+    void initializeLocalization().then(() => setLocalizationReady(true));
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void syncDeviceLanguage();
+    });
+    return () => subscription.remove();
+  }, []);
+
   const resetToLogin = useCallback(() => {
     setScreen({ name: "login" });
-    setHomeScreen("home");
   }, []);
 
   useEffect(() => {
@@ -59,7 +160,6 @@ export default function App() {
       hadSession.current = true;
       return;
     }
-
     if (hadSession.current) {
       hadSession.current = false;
       resetToLogin();
@@ -71,37 +171,18 @@ export default function App() {
   }, []);
 
   let body: React.ReactNode;
-  if (isPending) {
+  if (!localizationReady || isPending) {
     body = (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: colors.bg,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <ActivityIndicator color={colors.accent} size="large" />
+      <View style={styles.loading}>
+        <ActivityIndicator color={colors.textPrimary} size="large" />
       </View>
     );
   } else if (session) {
-    body =
-      homeScreen === "qr" ? (
-        integrity?.compromised ? (
-          <DeviceBlocked onBack={() => setHomeScreen("home")} />
-        ) : (
-          <QrEntry onBack={() => setHomeScreen("home")} />
-        )
-      ) : (
-        <Home
-          userName={session.user.name}
-          onOpenQr={() => setHomeScreen("qr")}
-        />
-      );
+    body = <SignedInApp userName={session.user.name} integrity={integrity} />;
   } else if (screen.name === "register") {
     body = (
       <Register
-        onLogin={() => setScreen({ name: "login" })}
+        onLogin={resetToLogin}
         onRegistered={(email, password) =>
           setScreen({ name: "verify", email, password })
         }
@@ -119,7 +200,7 @@ export default function App() {
   } else if (screen.name === "forgot") {
     body = (
       <ForgotPassword
-        onBack={() => setScreen({ name: "login" })}
+        onBack={resetToLogin}
         onSent={(email) => setScreen({ name: "reset", email })}
       />
     );
@@ -127,8 +208,8 @@ export default function App() {
     body = (
       <ResetPassword
         email={screen.email}
-        onBack={() => setScreen({ name: "login" })}
-        onDone={() => setScreen({ name: "login" })}
+        onBack={resetToLogin}
+        onDone={resetToLogin}
       />
     );
   } else {
@@ -144,9 +225,30 @@ export default function App() {
   }
 
   return (
-    <>
+    <View style={styles.root}>
       <StatusBar style="light" />
       {body}
-    </>
+      {localizationReady && !session ? <LanguageSwitcher floating /> : null}
+    </View>
   );
 }
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+const styles = {
+  root: { flex: 1, backgroundColor: colors.background },
+  loading: {
+    flex: 1,
+    backgroundColor: colors.background,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  visible: { flex: 1 },
+  hidden: { display: "none" as const },
+};

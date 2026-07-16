@@ -1,4 +1,4 @@
-import type { EntryDenyReason } from "@opengym/shared";
+import type { GateRejectCode } from "@opengym/shared";
 import { db } from "./db.js";
 import { redis } from "./redis.js";
 
@@ -10,8 +10,7 @@ export interface EntryEventInput {
   userId: string | null;
   memberName: string | null;
   allowed: boolean;
-  reason: EntryDenyReason | null;
-  jti: string | null;
+  reason: GateRejectCode | null;
   at: Date;
 }
 

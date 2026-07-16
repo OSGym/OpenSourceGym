@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { fromNodeHeaders } from "better-auth/node";
 import type { MyProfile, Role } from "@opengym/shared";
 import { auth } from "./auth.js";
+import { sendApiError } from "./apiError.js";
 import { db } from "./db.js";
 import { buildProfilePhotoUrl } from "./profilePhoto.js";
 
@@ -25,7 +26,7 @@ export function requireRole(...roles: Role[]) {
       headers: fromNodeHeaders(req.headers),
     });
     if (!session) {
-      res.status(401).json({ message: "Oturum gerekli." });
+      sendApiError(res, 401, "AUTH_REQUIRED", "Oturum gerekli.");
       return;
     }
     req.sessionToken = session.session.token;
@@ -35,7 +36,7 @@ export function requireRole(...roles: Role[]) {
       .collection("user")
       .findOne({ _id: new ObjectId(session.user.id) });
     if (!doc) {
-      res.status(401).json({ message: "Oturum gerekli." });
+      sendApiError(res, 401, "AUTH_REQUIRED", "Oturum gerekli.");
       return;
     }
     const user: SessionUser = {
@@ -51,17 +52,19 @@ export function requireRole(...roles: Role[]) {
       ),
     };
     if (!roles.includes(user.role)) {
-      res.status(403).json({ message: "Bu işlem için yetkiniz yok." });
+      sendApiError(res, 403, "FORBIDDEN", "Bu işlem için yetkiniz yok.");
       return;
     }
     // US-2: zorunlu şifre değişimi yapılmadan yalnızca şifre değiştirme ve
     // profil uçları çalışır
     const exemptPaths = ["/initial-password", "/profile"];
     if (user.mustChangePassword && !exemptPaths.includes(req.path)) {
-      res.status(403).json({
-        code: "PASSWORD_CHANGE_REQUIRED",
-        message: "Devam etmeden önce şifrenizi değiştirmelisiniz.",
-      });
+      sendApiError(
+        res,
+        403,
+        "PASSWORD_CHANGE_REQUIRED",
+        "Devam etmeden önce şifrenizi değiştirmelisiniz.",
+      );
       return;
     }
     req.user = user;

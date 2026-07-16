@@ -55,6 +55,7 @@ export interface CreateSubscriptionRequest {
 
 export interface MySubscription {
   active: boolean;
+  startsAt: string | null;
   endsAt: string | null;
   remainingDays: number;
 }
@@ -83,22 +84,75 @@ export interface AuditLogEntry {
   at: string;
 }
 
-// ---- Faz 4: Turnike / QR / Device Gateway ----
+// ---- Faz 4 (revize): Statik turnike QR + Device Gateway ----
+// Akış: turnikeye yapıştırılmış statik QR üye telefonuyla okutulur; sunucu
+// üyeyi doğrular ve cihaza WS üzerinden "open" komutu gönderir.
 
-/** QR üretim isteğinin red nedenleri (HTTP 403 body.code) */
-export type QrRejectCode =
+/** Tarama isteğinin reddedilme nedenleri (HTTP 403 body.code; entry_events.reason) */
+export type GateRejectCode =
+  | "INVALID_QR"
+  | "UNKNOWN_DEVICE"
+  | "DEVICE_OFFLINE"
   | "NO_ACTIVE_SUBSCRIPTION"
   | "LOCATION_REQUIRED"
   | "OUT_OF_RANGE"
   | "MOCK_LOCATION"
   | "SHARING_BLOCKED";
 
-export interface QrTokenResponse {
-  /** Turnikede okutulacak imzalı, kısa ömürlü token (QR içeriği) */
-  token: string;
-  expiresAt: string;
-  /** En az bir turnike cihazı bağlı mı (kopuksa üyeye uyarı gösterilir) */
-  gatewayOnline: boolean;
+/** İstemcilerin sunucu mesajını ayrıştırmadan çevirebildiği kararlı hata kodları. */
+export type ApiErrorCode =
+  | GateRejectCode
+  | "AUTH_REQUIRED"
+  | "FORBIDDEN"
+  | "PASSWORD_CHANGE_REQUIRED"
+  | "PAYLOAD_TOO_LARGE"
+  | "PROFILE_PHOTO_MISSING"
+  | "PROFILE_PHOTO_INVALID"
+  | "PROFILE_PHOTO_BUSY"
+  | "PROFILE_PHOTO_RATE_LIMITED"
+  | "PROFILE_PHOTO_UNAVAILABLE"
+  | "INVALID_REQUEST"
+  | "RATE_LIMITED"
+  | "DELETION_MEMBER_ONLY"
+  | "DELETION_ALREADY_PENDING"
+  | "DELETION_NOT_PENDING"
+  | "INVALID_DEVICE_NAME"
+  | "DEVICE_NOT_FOUND"
+  | "PASSWORD_TOO_SHORT"
+  | "CURRENT_PASSWORD_INVALID"
+  | "SEARCH_QUERY_TOO_SHORT"
+  | "INVALID_USER_OR_ROLE"
+  | "SELF_ROLE_CHANGE"
+  | "MFA_REQUIRED"
+  | "MFA_LOCKED"
+  | "MFA_INVALID"
+  | "USER_NOT_FOUND"
+  | "INVALID_SUBSCRIPTION"
+  | "SUBSCRIPTION_BUSY"
+  | "INVALID_USER"
+  | "GYM_NAME_REQUIRED"
+  | "INVALID_LOCATION"
+  | "INVALID_CAPACITY"
+  | "INVALID_AUTO_EXIT"
+  | "INVALID_SHARING_SETTINGS"
+  | "DELETION_REQUEST_NOT_FOUND"
+  | "DELETION_REQUEST_RESOLVED"
+  | "DELETION_CLEANUP_FAILED"
+  | "INVALID_PHONE_NUMBER"
+  | "PHONE_ALREADY_EXISTS";
+
+export interface ApiErrorResponse {
+  code: ApiErrorCode;
+  /** İnsan ve loglar için Türkçe geriye dönük mesaj; UI kararları code ile verilir. */
+  message: string;
+}
+
+export interface GateScanResponse {
+  ok: true;
+  deviceName: string;
+  direction: DeviceDirection;
+  /** Röle tetikleme süresi (ms) — bilgi amaçlı */
+  openMs: number;
 }
 
 /** Turnike yönü: "in" giriş (doluluk +1), "out" çıkış (doluluk -1, abonelik kontrolü atlanır) */
@@ -113,6 +167,8 @@ export interface Device {
   createdAt: string;
   /** Son 24 saatte çevrimiçi kalma yüzdesi (0-100) — KPI-4 */
   uptime24h: number;
+  /** Yazdırılabilir statik QR içeriği (OGGATE1.…) */
+  qrContent: string;
 }
 
 /** Cihaz oluşturma yanıtı — token yalnızca bu yanıtta bir kez görünür */
@@ -121,11 +177,8 @@ export interface DeviceCreated {
   name: string;
   direction: DeviceDirection;
   token: string;
+  qrContent: string;
 }
-
-/** Tarama anında geçişin reddedilme nedenleri */
-export type EntryDenyReason =
-  "INVALID_TOKEN" | "EXPIRED" | "REPLAY" | "NO_ACTIVE_SUBSCRIPTION";
 
 export interface EntryEvent {
   id: string;
@@ -134,25 +187,25 @@ export interface EntryEvent {
   userId: string | null;
   memberName: string | null;
   allowed: boolean;
-  reason: EntryDenyReason | null;
+  reason: GateRejectCode | null;
   at: string;
 }
 
 // Device Gateway WS protokolü (JSON text frame, cihaz ↔ sunucu)
-export type DeviceClientMessage =
-  | { type: "auth"; deviceId: string; token: string }
-  | { type: "scan"; qr: string };
+// Cihaz artık "dumb client": yalnızca kimlik doğrular ve open komutu dinler
+export type DeviceClientMessage = {
+  type: "auth";
+  deviceId: string;
+  token: string;
+};
 
 export type DeviceServerMessage =
   | { type: "auth_ok"; deviceName: string }
   | { type: "auth_error"; message: string }
   | {
-      type: "scan_result";
-      allow: boolean;
-      reason?: EntryDenyReason;
-      memberName?: string;
+      type: "open";
       /** Röle tetikleme süresi (ms) — cihaz bu süre kadar açar */
-      openMs?: number;
+      openMs: number;
     };
 
 // ---- Faz 5: MFA / Doluluk / KVKK ----
