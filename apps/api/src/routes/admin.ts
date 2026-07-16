@@ -166,7 +166,9 @@ adminRouter.post("/users/:id/role", requireRole("admin"), async (req, res) => {
     );
     return;
   }
-  if (idParam === req.user!.id) {
+  // ObjectId.equals ile karşılaştır: ham string eşitliği kanonik olmayan
+  // hex (ör. büyük harf) girdisinde kendi rolünü değiştirme korumasını atlatır
+  if (targetId.equals(req.user!.id)) {
     sendApiError(
       res,
       400,
@@ -528,29 +530,38 @@ adminRouter.post(
       );
       return;
     }
+    // TOCTOU koruması: talebi pending→approved atomik olarak sahiplen. İki
+    // admin aynı anda onaylarsa yalnızca biri eşleşir; diğeri 409 alır
+    // (mükerrer denetim kaydı ve işlem tekrarı önlenir).
+    const claim = await db.collection("deletion_requests").updateOne(
+      { _id: requestId, status: "pending" },
+      {
+        $set: {
+          status: "approved",
+          resolvedAt: new Date(),
+          resolvedBy: req.user!.id,
+        },
+      },
+    );
+    if (claim.matchedCount === 0) {
+      const existing = await db
+        .collection("deletion_requests")
+        .findOne({ _id: requestId }, { projection: { _id: 1 } });
+      sendApiError(
+        res,
+        existing ? 409 : 404,
+        existing ? "DELETION_REQUEST_RESOLVED" : "DELETION_REQUEST_NOT_FOUND",
+        existing
+          ? "Silme talebi zaten sonuçlandırılmış."
+          : "Silme talebi bulunamadı.",
+      );
+      return;
+    }
+    // Sahiplenme başarılı; hedef kullanıcı kimliğini oku (kayıt kesin var)
     const request = await db
       .collection("deletion_requests")
       .findOne({ _id: requestId });
-    if (!request) {
-      sendApiError(
-        res,
-        404,
-        "DELETION_REQUEST_NOT_FOUND",
-        "Silme talebi bulunamadı.",
-      );
-      return;
-    }
-    if (request.status !== "pending") {
-      sendApiError(
-        res,
-        409,
-        "DELETION_REQUEST_RESOLVED",
-        "Silme talebi zaten sonuçlandırılmış.",
-      );
-      return;
-    }
-
-    const targetId = request.userId as ObjectId;
+    const targetId = request!.userId as ObjectId;
     const targetIdStr = targetId.toString();
 
     // Kullanıcının tüm oturumları (Redis + Mongo) iptal edilir; uygulama
@@ -561,6 +572,15 @@ adminRouter.post(
       await deleteUserProfilePhotoForAccountDeletion(targetIdStr);
     } catch (error) {
       console.error("KVKK profil fotoğrafı silinemedi", error);
+      // Temizlik başarısız: talebi pending'e geri al ki yönetici yeniden
+      // deneyebilsin (fail-closed — kullanıcı verisi henüz silinmedi)
+      await db.collection("deletion_requests").updateOne(
+        { _id: requestId },
+        {
+          $set: { status: "pending" },
+          $unset: { resolvedAt: "", resolvedBy: "" },
+        },
+      );
       sendApiError(
         res,
         503,
@@ -589,20 +609,12 @@ adminRouter.post(
       .collection("audit_logs")
       .updateMany({ actorId: targetIdStr }, { $set: { actorEmail: null } });
 
-    // Kullanıcının TÜM talepleri (önceki reddedilenler dahil) PII taşımamalı
+    // Kullanıcının TÜM talepleri (önceki reddedilenler dahil) PII taşımamalı.
+    // Bu talebin status/resolvedAt/resolvedBy alanları başta atomik olarak
+    // sahiplenilirken zaten yazıldı; burada yalnızca PII temizlenir.
     await db
       .collection("deletion_requests")
       .updateMany({ userId: targetId }, { $set: { email: null, name: null } });
-    await db.collection("deletion_requests").updateOne(
-      { _id: requestId },
-      {
-        $set: {
-          status: "approved",
-          resolvedAt: new Date(),
-          resolvedBy: req.user!.id,
-        },
-      },
-    );
 
     // Mükerrer telefon çatışma kayıtlarından silinen kullanıcının PII'sini
     // kaldırır; tek hesap kaldıysa onu E.164'e taşıyıp çatışma kaydını siler.

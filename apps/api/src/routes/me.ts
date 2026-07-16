@@ -156,9 +156,9 @@ meRouter.post(
     // Basit hız sınırı: kullanıcı başına dakikada 30 tarama isteği
     const rlKey = `og:rl:gate-scan:${req.user!.id}`;
     const count = await redis.incr(rlKey);
-    if (count === 1) {
-      await redis.expire(rlKey, 60);
-    }
+    // NX: TTL yalnızca yoksa yazılır; incr/expire arasında çökme olursa
+    // sonraki istek TTL'i onarır (aksi halde anahtar süresiz kalıp kullanıcıyı kilitler)
+    await redis.expire(rlKey, 60, "NX");
     if (count > 30) {
       sendApiError(
         res,
