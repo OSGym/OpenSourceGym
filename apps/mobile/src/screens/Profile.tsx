@@ -12,7 +12,6 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import type {
   MyDeletionRequest,
@@ -98,6 +97,11 @@ export function Profile({ fallbackName }: { fallbackName: string }) {
 
     setPhotoBusy(true);
     try {
+      // Native modülü yalnızca fotoğraf işlenirken yükle. Böylece modülü henüz
+      // içermeyen eski development client'lar uygulama açılışında çökmez.
+      const { ImageManipulator, SaveFormat } = await import(
+        "expo-image-manipulator"
+      );
       const context = ImageManipulator.manipulate(selected.assets[0].uri);
       context.resize({ width: 1024 });
       const rendered = await context.renderAsync();
