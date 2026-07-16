@@ -9,7 +9,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import type {
   MyProfile,
@@ -97,6 +96,11 @@ export function Home({
 
     setPhotoBusy(true);
     try {
+      // Native modülü yalnızca fotoğraf işlenirken yükle. Böylece modülü henüz
+      // içermeyen eski development client'lar uygulama açılışında çökmez.
+      const { ImageManipulator, SaveFormat } = await import(
+        "expo-image-manipulator"
+      );
       const context = ImageManipulator.manipulate(selected.assets[0].uri);
       // Tek boyut ver: iki boyut vermek görseli 1024×1024'e esnetir (stretch);
       // kare kırpma sunucudaki fit: "cover" normalizasyonuna bırakılır.
