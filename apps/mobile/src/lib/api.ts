@@ -1,3 +1,5 @@
+import { fetch as expoFetch } from "expo/fetch";
+import { File } from "expo-file-system";
 import { API_URL } from "./config";
 import { authClient } from "./auth";
 import { getDeviceFingerprint } from "./fingerprint";
@@ -45,26 +47,27 @@ export async function uploadBinary<T>(
   uri: string,
   contentType: string,
 ): Promise<T> {
-  const [fp, localResponse] = await Promise.all([
-    getDeviceFingerprint(),
-    fetch(uri),
-  ]);
-  if (!localResponse.ok) {
+  let file: File;
+  try {
+    file = new File(uri);
+    if (!file.exists || file.size === 0) throw new Error("Unreadable file");
+  } catch {
     throw new ApiError(
       0,
       "The selected photo could not be read.",
       "LOCAL_FILE_READ_FAILED",
     );
   }
-  const body = await localResponse.blob();
-  const res = await fetch(`${API_URL}${path}`, {
+
+  const fp = await getDeviceFingerprint();
+  const res = await expoFetch(`${API_URL}${path}`, {
     method: "PUT",
     headers: {
       Cookie: authClient.getCookie(),
       "Content-Type": contentType,
       ...(fp ? { "X-Device-Fingerprint": fp } : {}),
     },
-    body,
+    body: file,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
